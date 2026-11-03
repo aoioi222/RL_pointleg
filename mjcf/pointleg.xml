@@ -1,0 +1,173 @@
+<mujoco model="pointleg">
+  <compiler angle="radian" meshdir="meshes/" fusestatic="false"/>
+
+  <default>
+    <geom margin="0"/>
+  </default>
+  <asset>
+    <mesh name="base_link" content_type="model/stl" file="base_link.STL"/>
+    <mesh name="fl_hip_abduction_Link" content_type="model/stl" file="fl_hip_abduction_Link.STL"/>
+    <mesh name="fl_hip_pitch_Link" content_type="model/stl" file="fl_hip_pitch_Link.STL"/>
+    <mesh name="fr_hip_abduction_Link" content_type="model/stl" file="fr_hip_abduction_Link.STL"/>
+    <mesh name="fr_hip_pitch_Link" content_type="model/stl" file="fr_hip_pitch_Link.STL"/>
+    <mesh name="rl_hip_abduction_Link" content_type="model/stl" file="rl_hip_abduction_Link.STL"/>
+    <mesh name="rl_hip_pitch_Link" content_type="model/stl" file="rl_hip_pitch_Link.STL"/>
+    <mesh name="rr_hip_abduction_Link" content_type="model/stl" file="rr_hip_abduction_Link.STL"/>
+    <mesh name="rr_hip_pitch_Link" content_type="model/stl" file="rr_hip_pitch_Link.STL"/>
+  </asset>
+
+  <worldbody>
+    <body name="base_link" pos="0 0 0.55">
+      <inertial pos="0.1517 0.0002 0.0542" mass="6.5377" fullinertia="0.0402 0.1689 0.1840 -0.0001 0.0000 0.0000"/>
+      <joint type="free"/>
+      <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="base_link"/>
+      <geom name="base_link_0_collision" size="0.178 0.1175 0.073" pos="0.1518 0 0.054" type="box" rgba="0.75294 0.75294 0.75294 1" group="3" contype="0" conaffinity="1" condim="1"/>
+      <body name="fl_hip_abduction_Link" pos="0.32826 0.066172 0.053981">
+        <inertial pos="0.0488 -0.0026 0.0007" mass="0.63" fullinertia="0.0004 0.0007 0.0006 0.0000 0.0000 0.0000"/>
+        <joint name="fl_hip_abduction_joint" pos="0 0 0" axis="1 0 0" range="-0.436 0.611" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="fl_hip_abduction_Link"/>
+        <body name="fl_hip_pitch_Link" pos="0.06389 -0.027344 0.00010727" quat="0.999997 -0.0025023 0 0">
+          <inertial pos="0.0019 0.1119 -0.0480" mass="0.998" fullinertia="0.0066 0.0068 0.0011 0.0000 0.0000 0.0004"/>
+          <joint name="fl_hip_pitch_joint" pos="0 0 0" axis="0 1 0" range="-2.58 2.58" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+          <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="fl_hip_pitch_Link"/>
+          <geom name="fl_hip_pitch_Link_0_collision" size="0.046 0.048" pos="0 0.048 0" quat="0.707105 0.707108 0 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1" group="3" contype="0" conaffinity="1" condim="1"/>
+          <geom name="fl_hip_pitch_Link_1_collision" size="0.0435 0.0115 0.06" pos="0 0.1155 -0.06" type="box" rgba="0.75294 0.75294 0.75294 1" group="3" contype="0" conaffinity="1" condim="1"/>
+          <body name="fl_knee_Link" pos="0 0.1035 -0.25" quat="0.999997 0.0025023 0 0">
+            <joint name="fl_knee_joint" pos="0 0 0" axis="0 1 0" range="-2.65 2.65" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+            <!-- 小腿由膝轴直接延伸至球心，惯量按均匀杆体近似，沿用原小腿质量。 -->
+            <geom name="fl_shin_collision" type="box" pos="0 0 -0.14032016" zaxis="0 0 -0.28064032" size="0.02 0.015 0.14032016" mass="0.6965" group="3" contype="0" conaffinity="1" condim="1" rgba="0.40 0.42 0.45 1"/>
+            <geom name="fl_shin_visual" type="box" pos="0 0 -0.14032016" zaxis="0 0 -0.28064032" size="0.02 0.015 0.14032016" density="0" group="1" contype="0" conaffinity="0" rgba="0.40 0.42 0.45 1"/>
+            <geom name="fl_knee_joint_visual" type="cylinder" size="0.026 0.018" quat="0.70710678 0.70710678 0 0" density="0" group="1" contype="0" conaffinity="0" rgba="0.30 0.32 0.35 1"/>
+            <!-- 球足嵌入小腿末端，底部 site 定义测力坐标系。 -->
+            <body name="fl_foot_Link" pos="0 0 -0.25564032">
+              <inertial pos="0 0 -0.025" mass="0.08" diaginertia="0.00002 0.00002 0.00002"/>
+              <geom name="fl_foot_Link_collision" type="sphere" pos="0 0 -0.025" size="0.025" density="0" condim="3" priority="1" friction="0.8 0.01 0.001" rgba="0.10 0.13 0.16 1" group="3" contype="0" conaffinity="1"/>
+              <geom name="fl_foot_visual" type="sphere" pos="0 0 -0.025" size="0.025" density="0" group="1" contype="0" conaffinity="0" rgba="0.10 0.13 0.16 1"/>
+              <site name="fl_foot_site" pos="0 0 -0.05" type="sphere" size="0.006" rgba="1 0.45 0.05 1"/>
+              <site name="fl_foot_contact_site" pos="0 0 -0.025" type="sphere" size="0.026" rgba="0.1 0.8 0.2 0"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="fr_hip_abduction_Link" pos="0.32826 -0.065853 0.054034">
+        <inertial pos="0.0488 0.0026 0.0008" mass="0.63" fullinertia="0.0004 0.0007 0.0006 0.0000 0.0000 0.0000"/>
+        <joint name="fr_hip_abduction_joint" pos="0 0 0" axis="1 0 0" range="-0.611 0.436" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="fr_hip_abduction_Link"/>
+        <body name="fr_hip_pitch_Link" pos="0.06389 0.027311 -0.00036027" quat="0.999976 -0.00686995 0 0">
+          <inertial pos="-0.0019 -0.1119 -0.048" mass="0.998" fullinertia="0.0066 0.0068 0.0011 0.0000 0.0000 0.0004"/>
+          <joint name="fr_hip_pitch_joint" pos="0 0 0" axis="0 1 0" range="-2.58 2.58" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+          <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="fr_hip_pitch_Link"/>
+          <geom name="fr_hip_pitch_Link_0_collision" size="0.046 0.048" pos="0 -0.048 0" quat="0.707105 0.707108 0 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1" group="3" contype="0" conaffinity="1" condim="1"/>
+          <geom name="fr_hip_pitch_Link_1_collision" size="0.0435 0.0115 0.06" pos="0 -0.1155 -0.06" type="box" rgba="0.75294 0.75294 0.75294 1" group="3" contype="0" conaffinity="1" condim="1"/>
+          <body name="fr_knee_Link" pos="-0.00075079 -0.1035 -0.25" quat="0.999976 0.00686995 0 0">
+            <joint name="fr_knee_joint" pos="0 0 0" axis="0 1 0" range="-2.65 2.65" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+            <!-- 小腿由膝轴直接延伸至球心，惯量按均匀杆体近似，沿用原小腿质量。 -->
+            <geom name="fr_shin_collision" type="box" pos="0 0 -0.14055030" zaxis="0 0 -0.28110060" size="0.02 0.015 0.14055030" mass="0.6965" group="3" contype="0" conaffinity="1" condim="1" rgba="0.40 0.42 0.45 1"/>
+            <geom name="fr_shin_visual" type="box" pos="0 0 -0.14055030" zaxis="0 0 -0.28110060" size="0.02 0.015 0.14055030" density="0" group="1" contype="0" conaffinity="0" rgba="0.40 0.42 0.45 1"/>
+            <geom name="fr_knee_joint_visual" type="cylinder" size="0.026 0.018" quat="0.70710678 0.70710678 0 0" density="0" group="1" contype="0" conaffinity="0" rgba="0.30 0.32 0.35 1"/>
+            <!-- 球足嵌入小腿末端，底部 site 定义测力坐标系。 -->
+            <body name="fr_foot_Link" pos="0 0 -0.25610060">
+              <inertial pos="0 0 -0.025" mass="0.08" diaginertia="0.00002 0.00002 0.00002"/>
+              <geom name="fr_foot_Link_collision" type="sphere" pos="0 0 -0.025" size="0.025" density="0" condim="3" priority="1" friction="0.8 0.01 0.001" rgba="0.10 0.13 0.16 1" group="3" contype="0" conaffinity="1"/>
+              <geom name="fr_foot_visual" type="sphere" pos="0 0 -0.025" size="0.025" density="0" group="1" contype="0" conaffinity="0" rgba="0.10 0.13 0.16 1"/>
+              <site name="fr_foot_site" pos="0 0 -0.05" type="sphere" size="0.006" rgba="1 0.45 0.05 1"/>
+              <site name="fr_foot_contact_site" pos="0 0 -0.025" type="sphere" size="0.026" rgba="0.1 0.8 0.2 0"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="rl_hip_abduction_Link" pos="-0.024743 0.066141 0.054034">
+        <inertial pos="-0.0488 -0.0026 -0.0007" mass="0.63" fullinertia="0.0004 0.0007 0.0006 0.0000 0.0000 0.0000"/>
+        <joint name="rl_hip_abduction_joint" pos="0 0 0" axis="1 0 0" range="-0.436 0.611" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="rl_hip_abduction_Link"/>
+        <body name="rl_hip_pitch_Link" pos="-0.06389 -0.027309 0.00045509">
+          <inertial pos="0.0019 0.1119 -0.048" mass="0.998" fullinertia="0.0066 0.0068 0.0011 0.0000 -0.0001 -0.0005"/>
+          <joint name="rl_hip_pitch_joint" pos="0 0 0" axis="0 1 0" range="-2.58 2.58" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+          <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="rl_hip_pitch_Link"/>
+          <geom name="rl_hip_pitch_Link_0_collision" size="0.046 0.048" pos="0 0.048 0" quat="0.707105 0.707108 0 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1" group="3" contype="0" conaffinity="1" condim="1"/>
+          <geom name="rl_hip_pitch_Link_1_collision" size="0.0435 0.0115 0.06" pos="0 0.1155 -0.06" type="box" rgba="0.75294 0.75294 0.75294 1" group="3" contype="0" conaffinity="1" condim="1"/>
+          <body name="rl_knee_Link" pos="0 0.099459 -0.25163">
+            <joint name="rl_knee_joint" pos="0 0 0" axis="0 1 0" range="-2.65 2.65" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+            <!-- 小腿由膝轴直接延伸至球心，惯量按均匀杆体近似，沿用原小腿质量。 -->
+            <geom name="rl_shin_collision" type="box" pos="0 0 -0.14018300" zaxis="0 0 -0.28036600" size="0.02 0.015 0.14018300" mass="0.6965" group="3" contype="0" conaffinity="1" condim="1" rgba="0.40 0.42 0.45 1"/>
+            <geom name="rl_shin_visual" type="box" pos="0 0 -0.14018300" zaxis="0 0 -0.28036600" size="0.02 0.015 0.14018300" density="0" group="1" contype="0" conaffinity="0" rgba="0.40 0.42 0.45 1"/>
+            <geom name="rl_knee_joint_visual" type="cylinder" size="0.026 0.018" quat="0.70710678 0.70710678 0 0" density="0" group="1" contype="0" conaffinity="0" rgba="0.30 0.32 0.35 1"/>
+            <!-- 球足嵌入小腿末端，底部 site 定义测力坐标系。 -->
+            <body name="rl_foot_Link" pos="0 0 -0.25536600">
+              <inertial pos="0 0 -0.025" mass="0.08" diaginertia="0.00002 0.00002 0.00002"/>
+              <geom name="rl_foot_Link_collision" type="sphere" pos="0 0 -0.025" size="0.025" density="0" condim="3" priority="1" friction="0.8 0.01 0.001" rgba="0.10 0.13 0.16 1" group="3" contype="0" conaffinity="1"/>
+              <geom name="rl_foot_visual" type="sphere" pos="0 0 -0.025" size="0.025" density="0" group="1" contype="0" conaffinity="0" rgba="0.10 0.13 0.16 1"/>
+              <site name="rl_foot_site" pos="0 0 -0.05" type="sphere" size="0.006" rgba="1 0.45 0.05 1"/>
+              <site name="rl_foot_contact_site" pos="0 0 -0.025" type="sphere" size="0.026" rgba="0.1 0.8 0.2 0"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="rr_hip_abduction_Link" pos="-0.024743 -0.065884 0.053981">
+        <inertial pos="-0.0488 0.0026 0.0008" mass="0.63" fullinertia="0.0004 0.0007 0.0006 0.0000 0.0000 0.0000"/>
+        <joint name="rr_hip_abduction_joint" pos="0 0 0" axis="1 0 0" range="-0.611 0.436" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="rr_hip_abduction_Link"/>
+        <body name="rr_hip_pitch_Link" pos="-0.06389 0.027341 0.00041625">
+          <inertial pos="-0.0020 -0.1111 -0.0498" mass="0.998" fullinertia="0.0066 0.0068 0.0011 0.0000 -0.0001 -0.0003"/>
+          <joint name="rr_hip_pitch_joint" pos="0 0 0" axis="0 1 0" range="-2.58 2.58" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+          <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="rr_hip_pitch_Link"/>
+          <geom name="rr_hip_pitch_Link_0_collision" size="0.046 0.048" pos="0 -0.048 0" quat="0.707105 0.707108 0 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1" group="3" contype="0" conaffinity="1" condim="1"/>
+          <geom name="rr_hip_pitch_Link_1_collision" size="0.0435 0.0115 0.06" pos="0 -0.1155 -0.06" type="box" rgba="0.75294 0.75294 0.75294 1" group="3" contype="0" conaffinity="1" condim="1"/>
+          <body name="rr_knee_Link" pos="-0.00075079 -0.099408 -0.25165">
+            <joint name="rr_knee_joint" pos="0 0 0" axis="0 1 0" range="-2.65 2.65" actuatorfrcrange="-25 25" damping="0.01" frictionloss="0.01" armature="0.0042"/>
+            <!-- 小腿由膝轴直接延伸至球心，惯量按均匀杆体近似，沿用原小腿质量。 -->
+            <geom name="rr_shin_collision" type="box" pos="0 0 -0.14017920" zaxis="0 0 -0.28035840" size="0.02 0.015 0.14017920" mass="0.6965" group="3" contype="0" conaffinity="1" condim="1" rgba="0.40 0.42 0.45 1"/>
+            <geom name="rr_shin_visual" type="box" pos="0 0 -0.14017920" zaxis="0 0 -0.28035840" size="0.02 0.015 0.14017920" density="0" group="1" contype="0" conaffinity="0" rgba="0.40 0.42 0.45 1"/>
+            <geom name="rr_knee_joint_visual" type="cylinder" size="0.026 0.018" quat="0.70710678 0.70710678 0 0" density="0" group="1" contype="0" conaffinity="0" rgba="0.30 0.32 0.35 1"/>
+            <!-- 球足嵌入小腿末端，底部 site 定义测力坐标系。 -->
+            <body name="rr_foot_Link" pos="0 0 -0.25535840">
+              <inertial pos="0 0 -0.025" mass="0.08" diaginertia="0.00002 0.00002 0.00002"/>
+              <geom name="rr_foot_Link_collision" type="sphere" pos="0 0 -0.025" size="0.025" density="0" condim="3" priority="1" friction="0.8 0.01 0.001" rgba="0.10 0.13 0.16 1" group="3" contype="0" conaffinity="1"/>
+              <geom name="rr_foot_visual" type="sphere" pos="0 0 -0.025" size="0.025" density="0" group="1" contype="0" conaffinity="0" rgba="0.10 0.13 0.16 1"/>
+              <site name="rr_foot_site" pos="0 0 -0.05" type="sphere" size="0.006" rgba="1 0.45 0.05 1"/>
+              <site name="rr_foot_contact_site" pos="0 0 -0.025" type="sphere" size="0.026" rgba="0.1 0.8 0.2 0"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="imu_link" pos="0.1518 0 0.127">
+        <inertial pos="0 0 0" mass="0" diaginertia="0 0 0"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <!-- 十二个腿部电机均为 N6014B-12.6，实机供电 48 V。 -->
+  <!-- 对称仿真限幅为 25 N·m，低于驱动峰值 31.7 N·m，不是额定持续扭矩。 -->
+  <!-- 腿部关节采用输出端位置 PD，不额外乘减速比；MJLab 按 Python 配置重建限幅和执行器。 -->
+  <actuator>
+    <position name="fl_hip_abduction_joint" joint="fl_hip_abduction_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="fl_hip_pitch_joint" joint="fl_hip_pitch_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="fl_knee_joint" joint="fl_knee_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="fr_hip_abduction_joint" joint="fr_hip_abduction_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="fr_hip_pitch_joint" joint="fr_hip_pitch_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="fr_knee_joint" joint="fr_knee_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="rl_hip_abduction_joint" joint="rl_hip_abduction_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="rl_hip_pitch_joint" joint="rl_hip_pitch_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="rl_knee_joint" joint="rl_knee_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="rr_hip_abduction_joint" joint="rr_hip_abduction_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="rr_hip_pitch_joint" joint="rr_hip_pitch_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+    <position name="rr_knee_joint" joint="rr_knee_joint" kp="50" kv="1.5" ctrllimited="false" forcelimited="true" forcerange="-25 25"/>
+  </actuator>
+
+  <!-- 球体半径 0.025 m、质量 0.08 kg 为仿真初值，需按实物重新标定。 -->
+  <sensor>
+    <force name="fl_foot_force" site="fl_foot_site"/>
+    <force name="fr_foot_force" site="fr_foot_site"/>
+    <force name="rl_foot_force" site="rl_foot_site"/>
+    <force name="rr_foot_force" site="rr_foot_site"/>
+    <!-- 触觉区域覆盖球面，避免球足倾斜时漏掉地面接触。 -->
+    <touch name="fl_foot_touch" site="fl_foot_contact_site"/>
+    <touch name="fr_foot_touch" site="fr_foot_contact_site"/>
+    <touch name="rl_foot_touch" site="rl_foot_contact_site"/>
+    <touch name="rr_foot_touch" site="rr_foot_contact_site"/>
+  </sensor>
+
+  <keyframe>
+    <key name="stand" qpos="0 0 0.42 1 0 0 0 0 0.550 -1.125 0 0.550 -1.125 0 0.550 -1.125 0 0.550 -1.125" ctrl="0 0.550 -1.125 0 0.550 -1.125 0 0.550 -1.125 0 0.550 -1.125"/>
+  </keyframe>
+</mujoco>
