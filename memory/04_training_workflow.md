@@ -1,5 +1,13 @@
 # 环境与训练操作
 
+## 2026-11-20 Colab 启动入口
+
+新增 `notebooks/colab_pointleg.ipynb`，用于在 Google Colab 中克隆仓库、安装项目锁定依赖、显示 GPU 信息、确认 `pointleg list` 任务注册，并按配置启动训练。Notebook 使用 `uv sync --locked --extra cu128` 安装依赖；项目内 `mjlab/` 作为本地 editable source，因此必须完整克隆仓库后再执行安装。
+
+训练单元默认 `START_TRAINING = False`，不会因打开或顺序执行 Notebook 而启动物理仿真或 PPO 训练。将其手动改为 `True` 后，默认训练 `PointLeg-Flat-v0`，使用 64 个环境、1000 次更新、`colab_flat` 运行名；日志通过 `--log-root` 写入 Google Drive 的 `MyDrive/pointleg_logs`。任务、并行环境数、更新次数和运行名均在训练配置单元中修改。
+
+仓库未包含 `.pt`、`.onnx`、`pretrained/` 与历史日志；若要续训或回放，用户需自行将对应检查点放入 Google Drive，并在 Notebook 的训练命令中补充恢复参数。Colab 的 CUDA、Python、网络与可用磁盘由其运行时决定，尚未在 Colab 实际安装依赖、启动物理步进或训练验证。
+
 ## 2026-11-19 本地训练命令生成器
 
 命令页面前两项依次为 MuJoCo 单环境和 Viser 单环境回放，其余命令按原顺序排列。

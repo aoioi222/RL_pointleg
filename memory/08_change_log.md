@@ -1565,3 +1565,9 @@ $checks = @(
 
 为减少手动替换模型路径，增加独立页面 `tools/训练命令生成器.html`。输入 Windows 检查点路径后生成六条 PowerShell 命令，续训默认 512 环境、1000 轮、train_1；目录名和文件名作为完整正则精确匹配，非标准梅花桩日志目录禁用续训命令。需要在 rc_mjlab 工作目录运行，页面不能验证模型存在性、来源和兼容性。Node 模拟页面检查六条命令、单/四环境参数、正则转义、路径及数字校验和复制回退通过；未在浏览器实测复制，未启动训练或仿真。用户示例路径在当前工作区不存在。
 
+## 2026-11-20 Colab Notebook 启动入口
+
+按用户要求新增 `notebooks/colab_pointleg.ipynb`，为 PointLeg 提供 Google Colab 启动入口。Notebook 依次检查 Python 版本、克隆或快进更新 `aoioi222/RL_pointleg`、安装 `uv`、运行 `uv sync --locked --extra cu128`、显示 `nvidia-smi` 并执行 `pointleg list`。训练配置默认 `PointLeg-Flat-v0`、64 环境、1000 次更新和运行名 `colab_flat`，训练命令通过 `--log-root` 写入 Google Drive 的 `MyDrive/pointleg_logs`。
+
+训练开关 `START_TRAINING` 默认 `False`，因此本次仅新增入口，不会在用户打开 Notebook 时自动启动物理步进、Viser、PPO 或正式训练。未改动任务、奖励、地形、观测、动作、模型接口或检查点；无新检查点兼容性变化。仅执行了 Notebook JSON 结构与训练命令参数的静态核对，未在 Colab 安装依赖、挂载 Drive、启动物理仿真或训练。模型权重、`pretrained/` 与历史日志仍不在仓库中，续训或回放须由用户提供相应检查点。
+

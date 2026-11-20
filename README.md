@@ -60,6 +60,10 @@ uv run --locked --no-sync pointleg evaluate PointLeg-Rough-v0 --checkpoint-file 
 uv run --locked --no-sync pointleg evaluate PointLeg-Rough-v0 --checkpoint-file "模型文件路径" --profile robust --episodes-per-case 100 --output artifacts\rough_robust.json
 ```
 
+### Google Colab
+
+在 Colab 中运行项目时，打开 `notebooks/colab_pointleg.ipynb` 并按单元顺序执行。Notebook 会克隆本仓库、安装锁定依赖、检查 GPU 和任务注册；训练默认关闭，确认任务与资源配置后再将 `START_TRAINING` 改为 `True`。训练日志默认可保存到 Google Drive，模型检查点需由用户自行提供。
+
 回放或评估前将 `模型文件路径` 替换为与该点足任务匹配的 checkpoint。评估报告记录检查点 SHA256、固定种子、地形类型和等级、指令、成功率、终止原因、速度误差、有效进度、足滑、接触过载和能耗。`nominal` 使用确定性环境，验收线为 90%；`robust` 保留物理随机化，验收线为 80%。已激活项目环境时，可用 `pointleg` 或 `python -m pointleg.run` 替代 `uv run --locked pointleg`。`list` 同时列出已注册任务和标有“占位，未启用”的预留任务；对占位任务执行 `train` 或 `play` 会提示对应开发入口并退出。完整回归测试命令为 `uv run --locked --no-sync python -m unittest discover -v`。
 
 当前通用崎岖训练边界、迁移模型哈希、课程门控、正式命令和验收口径见 [通用崎岖地形训练与验收](docs/ROUGH_TRAINING.md)。
