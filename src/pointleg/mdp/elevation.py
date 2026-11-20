@@ -11,7 +11,7 @@ from mjlab.utils.lab_api.math import euler_xyz_from_quat, matrix_from_quat
 
 from ..robot_cfg import BASE_BODY_NAME, EFFORT_LEG, FOOT_SITE_NAMES
 from ..terrains.elevation import (
-    CENTER_Y, FLAT_NAME, LANE_WIDTH, STAIR_TREAD_COUNT, TERRAIN_NAMES, WALL_CENTERS, WALL_NAME,
+    CENTER_Y, FLAT_NAME, LANE_WIDTH, STAIR_TREAD_COUNT, STEPS_PER_FLIGHT, STEP_DEPTH, TERRAIN_NAMES, WALL_CENTERS, WALL_NAME,
     WALL_THICKNESS,
     walking_terrain_names,
 )
@@ -448,7 +448,7 @@ def slope_exit_supported_feet(env, minimum_force=8.):
 
 
 def stairs_exit_supported_feet(env, minimum_force=8.):
-    """Require all feet to bear load on the destination platform of a stair task."""
+    """Find feet bearing load on the platform after the first stair flight."""
     state = elevation_state(env)
     sensor = env.scene["elevation_contacts"].data
     shape = (env.num_envs, 4, -1)
@@ -459,15 +459,15 @@ def stairs_exit_supported_feet(env, minimum_force=8.):
     local = pos - state["corner"][:, None, None, :]
     kind = env.scene.terrain.terrain_types
     stairs = (kind == 0) | (kind == 1)
-    height = torch.where(kind == 0, state["top_height"], 0.)
+    platform = state["step_surfaces"][:, STEPS_PER_FLIGHT - 1]
     finite = (torch.isfinite(found) & torch.isfinite(pos).all(dim=-1)
               & torch.isfinite(force).all(dim=-1) & torch.isfinite(normal).all(dim=-1))
     normal_force = (force * normal).sum(dim=-1).abs()
     loaded = finite & (found > 0) & (normal[..., 2] < -.5) & (normal_force >= minimum_force)
-    on_platform = ((local[..., 0] >= state["exit_x"][:, None, None])
-                   & (local[..., 0] <= env.cfg.scene.terrain.terrain_generator.size[0])
+    on_platform = ((local[..., 0] >= (platform[:, 0] + STEP_DEPTH)[:, None, None])
+                   & (local[..., 0] < platform[:, 1, None, None])
                    & ((local[..., 1] - CENTER_Y).abs() <= LANE_WIDTH / 2)
-                   & ((local[..., 2] - height[:, None, None]).abs()
+                   & ((local[..., 2] - platform[:, 2, None, None]).abs()
                       <= env._elevation_settings.top_contact_tolerance))
     return (loaded & on_platform & stairs[:, None, None]).any(dim=2)
 
@@ -510,6 +510,9 @@ def update_elevation_state(env):
     deadline = elapsed >= env.cfg.episode_length_s - 1e-6
     wrong_route = ((local[:, 1] - CENTER_Y).abs() > 0.8) | (local[:, 0] < state["start_x"] - 0.5)
     missed_step = (env.scene.terrain.terrain_types < 2) & (rear > state["exit_x"] + 0.01) & ~state["covered"].all(dim=1)
+    if settings.terrain_kind == "stairs":
+        middle_end = state["step_surfaces"][:, STEPS_PER_FLIGHT - 1, 1]
+        missed_step = (rear > middle_end + .01) & ~state["covered"][:, :STEPS_PER_FLIGHT].all(dim=1)
     clearance_failure = state["stairs_clearance_failed"] & (settings.terrain_kind != "stairs")
     failure = state["outside"] | state["bad_wall"] | state["missed_wall"] | base_contact | joint_failure | tilt | wrong_route | missed_step | state["invalid"] | state["stalled"] | clearance_failure
     state["reason"][:] = 0
@@ -536,7 +539,7 @@ def update_elevation_state(env):
         state["phase"] = stable.long() * 2
         hold = env.step_dt
     elif settings.terrain_kind == "stairs":
-        stable = (stairs_exit_supported_feet(env).all(dim=1) & state["covered"].all(dim=1)
+        stable = (stairs_exit_supported_feet(env).all(dim=1) & state["covered"][:, :STEPS_PER_FLIGHT].all(dim=1)
                   & state["initialized"] & ~failure)
         state["phase"] = stable.long() * 2
         hold = env.step_dt

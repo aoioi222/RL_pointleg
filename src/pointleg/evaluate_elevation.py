@@ -161,7 +161,7 @@ def _run_batch(task_id, checkpoint, options, seed, cases, repetitions, device):
                     "progress_m": float(robot.root_link_pos_w[index, 0] - start[index]),
                     "mean_normalized_slip": float(slip[index] / samples[index].clamp_min(1)),
                     "mechanical_energy_j": float(energy[index]),
-                    "covered_treads": int(state["covered"][index].sum()),
+                    "covered_treads": int(state["covered"][index, :3].sum()) if task_id == "PointLeg-Stairs-v0" else int(state["covered"][index].sum()),
                     "initial_approach_distance_m": float(approach[index]),
                     "stair_platform_length_m": float(state["stair_platform_length"][index]),
                     "airborne": bool(state["airborne"][index]), "wall_crossed": bool(state["crossed"][index]),

@@ -1,5 +1,45 @@
 # 环境与训练操作
 
+## 2026-11-19 本地训练命令生成器
+
+命令页面前两项依次为 MuJoCo 单环境和 Viser 单环境回放，其余命令按原顺序排列。
+
+训练环境数采用 1 到 65536 的 2 的幂次下拉选项，默认 512，选中值用于续训命令。
+
+双击 `tools/训练命令生成器.html`，粘贴 Windows 检查点路径，可复制 TensorBoard、续训、原生和 Viser 单/四环境回放及权重迁移命令。当前任务根据实验目录自动识别，也可手动选择；共用 `pointleg_rough` 目录的 Rough 和 RoughMixed 需要手动选择。续训使用输入路径的实验目录上级作为 `--log-root`，目录名和检查点使用转义后的完整正则匹配；任务与实验目录不符时禁用续训。迁移目标任务单独选择，默认为梅花桩，输出目录必须不存在。命令用于 rc_mjlab 目录下的 Windows PowerShell；训练默认 512 环境、1000 轮和运行名 train_1，迁移输出名称默认 lift5cm_pretrained，均可更改。页面无法验证文件存在、所属项目或模型接口兼容性。Node 模拟页面检查任务识别、日志根目录、多任务歧义、目录不匹配和迁移目标通过；未在浏览器实测、未执行迁移、回放或训练。
+
+## 2026-11-18 已启动修正版 2000 轮训练
+
+用户明确要求“改完开始给我训练自己训练2000轮”，本轮实际执行训练，覆盖默认不主动运行仿真/PPO的限制。先核对并结束旧版 `2026-11-18_14-14-44_train_2`，其 PID20740/启动器34192，配置10000次、失败窗口8s。保留旧日志和已保存 `model_0.pt`。本次未操作其他回放进程。
+
+本次运行目录为 `logs/rsl_rl/pointleg_stepping_stones/2026-11-18_14-25-04_train_3_audit_2000`，GPU进程15928、启动器37588，工具会话78799。从已验证123/399迁移种子开始，迭代0，512环境、2000次更新、每100保存。运行保存的 env.yaml 已核对失败窗口60s、成功终止最后执行，agent.yaml确认2000次。首份 `model_0.pt` 可读并含课程状态，预期末次 `model_1999.pt`。训练进行中，14:29本地约第47轮，完整步数0。
+
+实际启动命令为以下命令，工作目录 rc_mjlab。
+
+```powershell
+.venv/Scripts/python.exe -u -m pointleg.run train PointLeg-SteppingStones-v0 --env.scene.num-envs 512 --agent.resume True --agent.load-run flat_8700_fixed_gait_pretrained --agent.load-checkpoint model_0.pt --agent.max-iterations 2000 --agent.save-interval 100 --agent.run-name train_3_audit_2000 --agent.logger tensorboard --agent.upload-model False
+```
+
+2026-11-18 用户实际新运行名为 `2026-11-18_12-04-36_train_1`，配置 1000 次，从 `flat_8700_fixed_gait_pretrained/model_0.pt` 启动，保存至 `model_999.pt`。末 100 条日志均值赛道速度 −0.230413 m/s、回合约 0.636 s，完整步数与覆盖为 0。本轮修复后退奖励和提前失败代价，下一轮建议用已有迁移种子重新启动新进程。该种子 123/399、iter=0，SHA256 `a0f481a6e0bc213c427c0f62e56a712d57ef10c92172b0f28e156ab8f41d72a9`，本轮没有迁移、停止或启动训练。
+
+2026-11-18 二次审查修复课程续训状态。`SteppingStonesOnPolicyRunner` 保存 `stepping_stone_curriculum`，完整 resume 恢复已解锁最高等级和统计窗口，Actor-only 加载保留当前课程、轮次和公共计数。较早检查点缺少课程元数据时使用当前默认课程，原 123/399 模型可直接加载。奖励资格和同桩落点修正需重启进程后采用，本轮未启动或停止训练。下方起步修复训练命令仍可使用。
+
+## 2026-11-18 起步停滞修复后的训练命令
+
+`2026-11-18_01-26-20_fixed_gait_30000` 日志至 8924 轮首步完成始终为 0。修复激活与单腿反馈后，使用已有 `flat_8700_fixed_gait_pretrained/model_0.pt` 重新训练。已检查种子为 Actor/Critic 123/399、iter=0，SHA256 为 `a0f481a6e0bc213c427c0f62e56a712d57ef10c92172b0f28e156ab8f41d72a9`。结束旧训练进程后，在 rc_mjlab 目录运行以下命令。此命令尚未由本轮代理执行。
+
+```powershell
+uv run --locked --no-sync pointleg train PointLeg-SteppingStones-v0 --env.scene.num-envs 512 --agent.resume True --agent.load-run flat_8700_fixed_gait_pretrained --agent.load-checkpoint model_0.pt --agent.max-iterations 30000 --agent.run-name fixed_gait_start_fix --agent.logger tensorboard --agent.upload-model False
+```
+
+2026-11-15 左前支撑修正使用 `uv run --locked --no-sync pointleg train PointLeg-SteppingStones-v0 --competition-six-curriculum --env.scene.num-envs 512 --agent.resume True --agent.load-run 2026-11-15_16-59-04_new_train_16_six_gap --agent.load-checkpoint model_42700.pt --agent.max-iterations 1501 --agent.run-name new_train_18_left_front_handoff --agent.logger tensorboard --agent.upload-model False` 从六桩课程权重续训。命令已核对，本轮未启动。
+
+2026-11-15 面对直接上 10 cm 间隙训练退化，使用 `uv run --locked --no-sync pointleg train PointLeg-SteppingStones-v0 --competition-six-curriculum --env.scene.num-envs 512 --agent.resume True --agent.load-run 2026-11-15_14-26-31_new_train_14_support_handoff --agent.load-checkpoint model_41200.pt --agent.max-iterations 1501 --agent.run-name new_train_16_six_gap --agent.logger tensorboard --agent.upload-model False` 可从退化前的检查点训练六桩间隙课程。命令已核对，本轮未启动。
+
+2026-11-15 比赛六桩专项已运行。工作目录 `05_software/train/rc_mjlab`，命令 `uv run --locked --no-sync pointleg train PointLeg-SteppingStones-v0 --competition-six --env.scene.num-envs 512 --agent.resume True --agent.load-run 2026-11-15_14-26-31_new_train_14_support_handoff --agent.load-checkpoint model_41200.pt --agent.max-iterations 1501 --agent.run-name new_train_15_competition_six --agent.logger tensorboard --agent.upload-model False`。本次使用同等参数经本地 venv Python 后台启动。输出 `logs/rsl_rl/pointleg_stepping_stones/2026-11-15_15-55-47_new_train_15_competition_six`，预计末次 `model_42700.pt`。
+
+2026-11-14梅花桩回放默认每次重置随机选择2～8根桩的课程等级，成功或失败重置后可看到不同等级，随机抽取可能连续重复；训练配置不受影响。
+
 2026-11-01入口清理：原四个单方向ID及配置已下线，高程仅保留两个合并任务与混合Elevation。现有 `pointleg_stairs`、`pointleg_slope`、`pointleg_elevation` 下的初始化model_0可继续按对应任务resume；旧 `pointleg_stairs_up/down`、`pointleg_slope_up/down` 的检查点与日志文件保留，复用参数时以文件路径向现有任务transfer。下文四方向训练命令是历史记录，当前可执行命令见 `docs/ELEVATION_PAIRED_TRAINING.md`，旧专项文档已改为三入口索引。
 
 ## 2026-11-01 双向合并任务初始化
@@ -218,3 +258,11 @@ $env:WARP_CACHE_PATH = "E:\OneDrive\Desktop\RC_WheelLeg-main\05_software\train\r
 
 
 2026-11-01 12:41实际启动tran_4_2，运行目录`logs/rsl_rl/pointleg_high_step/2026-11-01_12-41-56_tran_4_2`，uv启动器PID48076、事件训练PID28384。控制台确认加载原train_3_2/model_10198.pt，已观察迭代10210并写出model_10200.pt；超15厘米惩罚和逐足路程额度/超高量指标已进入TensorBoard，实际采用新版配置。512环境、10001次追加更新、每100次保存，预期末次20198。后台保留供用户验收；42项张量检查、接口/优化器字段/原模型哈希、CLI、AST与diff检查通过，未做独立回放或物理测试，不声明步态已改善。旧train_4已停并保留最后model_17100.pt。启动/运行/预检证据为artifacts/tran_4_2_launch.json、tran_4_2_runtime.json、tran_4_2_preflight.json。
+
+## 2026-11-08 台阶12000迁移至梅花桩
+
+2026-11-12用户指定 `sim2sim/policy/optical_policy/model_1999.pt`，通过 `pointleg.transfer` 迁移到 `logs/rsl_rl/pointleg_stepping_stones/optical_1999_pretrained/model_0.pt`。源输入45/325扩为105/381，原有权重逐项一致、新增输入列为零，优化器和迭代归零。源SHA256 `2e35db3a3fa5369fdde4f8242fbb88e7e1f92b68b0418f97f4edb2b76a5e02f6`，目标SHA256 `9a52d25040b85eb01b306f7855ef5232283e048083f3c5511e0fa6c2def991e2`。未进行仿真、训练或策略回放。
+
+按用户指定，将 `logs/rsl_rl/pointleg_stairs/2026-11-07_17-13-11_train_13_slow/model_12000.pt` 通过现有 `prepare_transfer("PointLeg-SteppingStones-v0", source, "stairs_train_13_slow_12000_pretrained")` 迁移至 `logs/rsl_rl/pointleg_stepping_stones/stairs_train_13_slow_12000_pretrained/model_0.pt`，同目录保存 `transfer.json`。训练时使用 `--agent.resume True --agent.load-run stairs_train_13_slow_12000_pretrained --agent.load-checkpoint model_0.pt`。优化器、轮次和公共步数从0开始。
+
+迁移前核对了原观测列顺序、缩放、动作执行器与动作缩放。CPU逐张量核对原权重、Actor新增60列与Critic新增56列均置零、105/381/12接口及新检查点严格加载。源 SHA256 为 `28e87009fe6f19ff7c76361443f5130fbb4a6273d50f638cd7bd6f1269f4740b`，生成后再次核对一致。目标 SHA256 为 `554314e5c5ebbe1f1591648cbd5b941f8b62a2c43e74da8705362e64142a42b3`。验证范围限于配置、权重及CPU加载。

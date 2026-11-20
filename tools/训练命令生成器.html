@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PointLeg 训练命令生成器</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f3f6fa; color: #17243a; font: 15px/1.6 "Microsoft YaHei", sans-serif; }
+  main { max-width: 1050px; padding: 36px 20px 60px; margin: auto; }
+  h1 { margin: 0; font-size: 28px; }
+  .intro { color: #596b80; margin: 6px 0 24px; }
+  .panel, .card { background: white; border: 1px solid #dce4ee; border-radius: 12px; padding: 20px; box-shadow: 0 3px 12px #1c355c0a; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input, select { width: 100%; border: 1px solid #bdcbdc; border-radius: 7px; padding: 10px 12px; font: inherit; background: white; }
+  input:focus, select:focus { outline: 2px solid #a9c8ff; border-color: #3576dc; }
+  .settings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 16px; }
+  .hint { color: #5b6e82; margin: 12px 0 0; font-size: 13px; }
+  #status { min-height: 24px; color: #a54328; margin-top: 10px; }
+  .results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 20px; }
+  .card h2 { font-size: 17px; margin: 0 0 10px; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f5f8fc; border-radius: 7px; padding: 12px; min-height: 84px; font: 13px/1.55 Consolas, monospace; }
+  button { border: 0; background: #2563c9; color: white; border-radius: 7px; padding: 8px 16px; cursor: pointer; font: inherit; }
+  button:hover { background: #194da6; }
+  button:disabled { background: #a7b6c8; cursor: default; }
+  .copy-status { color: #446179; margin-left: 9px; font-size: 13px; }
+  @media (max-width: 650px) { .settings, .results { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>PointLeg 训练命令生成器</h1>
+  <p class="intro">粘贴检查点路径，选择需要的命令并复制到 PowerShell。</p>
+  <section class="panel">
+    <label for="path">模型文件路径</label>
+    <input id="path" type="text" spellcheck="false" placeholder="例如 E:\项目\logs\rsl_rl\pointleg_stepping_stones\运行目录\model_19899.pt">
+    <div class="settings">
+      <div><label for="task">当前任务</label><select id="task"><option value="auto">根据模型目录自动识别</option></select></div>
+      <div><label for="envs">训练环境数</label><select id="envs"><option>1</option><option>2</option><option>4</option><option>8</option><option>16</option><option>32</option><option>64</option><option>128</option><option>256</option><option selected>512</option><option>1024</option><option>2048</option><option>4096</option><option>8192</option><option>16384</option><option>32768</option><option>65536</option></select></div>
+      <div><label for="iterations">训练轮数</label><input id="iterations" type="number" min="1" step="1" value="1000"></div>
+      <div><label for="runName">新运行名称</label><input id="runName" type="text" value="train_1" spellcheck="false"></div>
+      <div><label for="outputRun">迁移输出名称</label><input id="outputRun" type="text" value="node_pretrained" spellcheck="false"></div>
+      <div><label for="transferTask">迁移目标任务</label><select id="transferTask"></select></div>
+    </div>
+    <p class="hint">命令适用于 Windows PowerShell，请先运行 <code>cd E:\OneDrive\Desktop\RC_WheelLeg-main\05_software\train\rc_mjlab</code>。续训从输入路径中的实验目录查找模型，回放使用当前任务，迁移使用单独选择的目标任务。页面无法检查文件是否存在或模型是否兼容；迁移输出目录不能已存在。</p>
+    <div id="status" role="status" aria-live="polite"></div>
+  </section>
+  <section id="results" class="results" aria-label="生成的命令"></section>
+</main>
+<script>
+const fields = ['path', 'envs', 'iterations', 'runName', 'outputRun', 'task', 'transferTask'].map(id => document.getElementById(id));
+const [pathInput, envInput, iterationInput, runInput, outputInput, taskInput, transferInput] = fields;
+const tasks = [
+  ['PointLeg-Flat-v0', 'pointleg_flat'],
+  ['PointLeg-HighStep-v0', 'pointleg_high_step'],
+  ['PointLeg-Elevation-v0', 'pointleg_elevation'],
+  ['PointLeg-Stairs-v0', 'pointleg_stairs'],
+  ['PointLeg-Slope-v0', 'pointleg_slope'],
+  ['PointLeg-Rough-v0', 'pointleg_rough'],
+  ['PointLeg-RoughMixed-v0', 'pointleg_rough'],
+  ['PointLeg-SteppingStones-v0', 'pointleg_stepping_stones'],
+  ['PointLeg-Crawl-v0', 'pointleg_crawl'],
+  ['PointLeg-Jump-v0', 'pointleg_jump']
+];
+tasks.forEach(([id]) => {
+  const option = document.createElement('option');
+  option.value = id;
+  option.textContent = id;
+  taskInput.appendChild(option);
+  if (['PointLeg-Elevation-v0', 'PointLeg-Stairs-v0', 'PointLeg-Slope-v0', 'PointLeg-SteppingStones-v0', 'PointLeg-Jump-v0'].includes(id)) {
+    const target = document.createElement('option');
+    target.value = id;
+    target.textContent = id;
+    transferInput.appendChild(target);
+  }
+});
+transferInput.value = 'PointLeg-SteppingStones-v0';
+const results = document.getElementById('results');
+const status = document.getElementById('status');
+const labels = ['Mujoco 看仿真一个', 'Viser 看仿真一个', '看曲线', '继续训练', 'Mujoco 看仿真四个', 'Viser 看仿真四个', '迁移模型'];
+const cards = labels.map(label => {
+  const card = document.createElement('article');
+  card.className = 'card';
+  const title = document.createElement('h2');
+  title.textContent = label;
+  const code = document.createElement('pre');
+  code.textContent = '输入模型路径后自动生成';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = '复制命令';
+  button.disabled = true;
+  const message = document.createElement('span');
+  message.className = 'copy-status';
+  message.setAttribute('aria-live', 'polite');
+  button.addEventListener('click', async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(code.textContent);
+      } else {
+        const area = document.createElement('textarea');
+        area.value = code.textContent;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        const copied = document.execCommand('copy');
+        area.remove();
+        if (!copied) throw new Error('copy failed');
+      }
+      message.textContent = '已复制';
+    } catch (_) {
+      message.textContent = '复制失败，请手动选中命令复制';
+    }
+  });
+  card.append(title, code, button, message);
+  results.appendChild(card);
+  return {code, button, message};
+});
+const quote = value => "'" + value.replace(/'/g, "''") + "'";
+const regexLiteral = value => '^' + value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$';
+function render() {
+  let path = pathInput.value.trim();
+  if ((path.startsWith('"') && path.endsWith('"')) || (path.startsWith("'") && path.endsWith("'"))) path = path.slice(1, -1);
+  path = path.replace(/\//g, '\\');
+  const match = path.match(/^([a-zA-Z]:\\|\\\\[^\\]+\\[^\\]+\\)(.+)\\([^\\]+)\\([^\\]+\.pt)$/i);
+  const envs = envInput.value;
+  const iterations = iterationInput.value;
+  const runName = runInput.value.trim();
+  const outputRun = outputInput.value.trim();
+  const validOutputRun = !!outputRun && outputRun !== '.' && outputRun !== '..' && !/[\\/:*?"<>|\r\n]/.test(outputRun);
+  let error = '';
+  if (path && !match) error = '请输入完整的 Windows .pt 模型文件路径。';
+  else if (!/^[1-9]\d*$/.test(envs) || !/^[1-9]\d*$/.test(iterations) || !runName) error = '训练环境数和训练轮数须为正整数，运行名称不能为空。';
+  else if (/[\\/:*?"<>|\r\n]/.test(runName)) error = '运行名称不能包含 Windows 文件名中的非法字符。';
+  status.textContent = error;
+  let commands = [];
+  if (match && !error) {
+    const folder = path.slice(0, path.lastIndexOf('\\'));
+    const run = match[3];
+    const model = match[4];
+    const experimentPath = folder.slice(0, folder.lastIndexOf('\\'));
+    const experimentName = experimentPath.slice(experimentPath.lastIndexOf('\\') + 1).toLowerCase();
+    let logRoot = experimentPath.slice(0, experimentPath.lastIndexOf('\\'));
+    if (/^[a-zA-Z]:$/.test(logRoot)) logRoot += '\\';
+    const candidates = tasks.filter(([, experiment]) => experiment === experimentName);
+    const selected = tasks.find(([id]) => id === taskInput.value);
+    const currentTask = selected ? selected[0] : candidates.length === 1 ? candidates[0][0] : '';
+    const matchesDirectory = selected ? selected[1] === experimentName : candidates.length === 1;
+    const play = 'uv run --locked --no-sync pointleg play ' + currentTask;
+    commands = [
+      currentTask ? play + ' --num-envs 1 --viewer native --checkpoint-file ' + quote(path) : '',
+      currentTask ? play + ' --num-envs 1 --checkpoint-file ' + quote(path) : '',
+      'uv run --locked --no-sync tensorboard --logdir ' + quote(folder),
+      matchesDirectory ? 'uv run --locked --no-sync pointleg train ' + currentTask + ' --log-root ' + quote(logRoot) + ' --env.scene.num-envs ' + envs + ' --agent.logger tensorboard --agent.upload-model False --agent.resume True --agent.max-iterations ' + iterations + ' --agent.load-run ' + quote(regexLiteral(run)) + ' --agent.load-checkpoint ' + quote(regexLiteral(model)) + ' --agent.run-name ' + quote(runName) : '',
+      currentTask ? play + ' --num-envs 4 --viewer native --checkpoint-file ' + quote(path) : '',
+      currentTask ? play + ' --num-envs 4 --checkpoint-file ' + quote(path) : '',
+      validOutputRun ? 'uv run pointleg transfer ' + transferInput.value + ' --checkpoint-file ' + quote(path) + ' --output-run ' + quote(outputRun) : ''
+    ];
+    if (!currentTask) status.textContent = candidates.length > 1 ? '该实验目录对应多个任务，请选择当前任务。' : '无法识别该实验目录，请选择当前任务；续训仅支持任务对应的实验目录。';
+    else if (!matchesDirectory) status.textContent = '选择的任务与模型所在的实验目录不一致，已暂停生成续训命令。';
+    else status.innerHTML = '当前任务：' + currentTask + '。'+ '<br>' + '续训日志根目录：' + logRoot;
+    if (!validOutputRun) status.textContent += ' 迁移输出名称须为有效的单个目录名称。';
+  }
+  cards.forEach((card, i) => {
+    card.code.textContent = commands[i] || (match && !error ? (i === 6 ? '请输入有效的迁移输出名称。' : '请根据提示选择与模型对应的任务。') : '输入有效参数后自动生成');
+    card.button.disabled = !commands[i];
+    card.message.textContent = '';
+  });
+}
+fields.forEach(field => field.addEventListener('input', render));
+render();
+</script>
+</body>
+</html>

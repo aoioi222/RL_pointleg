@@ -19,10 +19,10 @@ class ElevationOnPolicyRunner(MjlabOnPolicyRunner):
             if "step_timing" in rewards:
                 revision, gait_style = 11, "slope_longer_steps_and_alignment"
                 if settings["terrain_kind"] == "stairs":
-                    revision, gait_style = 17, "stairs_height_matched_lift_and_thigh_alignment"
+                    revision, gait_style = 34, "stairs_right_front_joint_limits"
             completion = "four_loaded_feet_on_exit_platform"
             if settings["terrain_kind"] == "stairs":
-                completion = "all_treads_covered_and_four_loaded_feet_on_exit_platform"
+                completion = "first_three_treads_covered_and_four_loaded_feet_on_middle_platform"
             return {"revision": revision, "terrain_kind": settings["terrain_kind"],
                     "flat_rehearsal": False, "gait_style": gait_style,
                     "speed_range": settings["speed_range"],
@@ -109,6 +109,13 @@ class ElevationOnPolicyRunner(MjlabOnPolicyRunner):
         result = super().load(path, load_cfg=load_cfg, strict=strict, map_location=map_location)
         if restore and hasattr(raw, "_elevation_curriculum"):
             raw._elevation_curriculum.load_state_dict(infos["elevation_curriculum"])
+            if (raw._elevation_settings.terrain_kind == "stairs"
+                    and (infos.get("elevation_walking") or {}).get("completion")
+                    != self._walking_contract().get("completion")):
+                for name in ("stairs_up", "stairs_down"):
+                    raw._elevation_curriculum.windows[raw._elevation_curriculum.terrain_names.index(name)].clear()
+                warnings.warn("Stair completion changed; cleared stair curriculum success windows while retaining unlocked levels.",
+                              UserWarning, stacklevel=2)
         if not restore:
             raw.common_step_counter, self.current_learning_iteration = counter, iteration
         return result

@@ -5,27 +5,100 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock
 
 import torch
 
 from mjlab.rl import MjlabOnPolicyRunner
-from mjlab.tasks.registry import load_env_cfg, load_rl_cfg
+from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
+from pointleg.mdp.stepping_stones import SUPPORT_PROGRESS_INFO_KEY, SteppingStoneCurriculum
+from pointleg.mdp.fixed_stone_gait import FIXED_GAIT_INFO_KEY
 from pointleg.transfer import _TransferEnv, prepare_transfer
 
 
 TASK = "PointLeg-SteppingStones-v0"
 
 
-def make_runner(task_id):
+def make_runner(task_id, *, use_registered_runner=False):
     cfg = load_rl_cfg(task_id)
     cfg.upload_model = False
     cfg.num_steps_per_env = 1
     cfg.algorithm.num_mini_batches = 1
-    return MjlabOnPolicyRunner(_TransferEnv(task_id), asdict(cfg), device="cpu")
+    env = _TransferEnv(task_id)
+    runner_cls = MjlabOnPolicyRunner
+    if use_registered_runner:
+        env.observation_manager = SimpleNamespace(
+            get_term_cfg=lambda group, term: env.cfg.observations[group].terms[term],
+            reset=Mock(),
+        )
+        runner_cls = load_runner_cls(task_id)
+    return runner_cls(env, asdict(cfg), device="cpu")
 
 
 class SteppingStonesTransferTests(unittest.TestCase):
+    def test_full_resume_restores_curriculum_cap_and_success_window(self):
+        source = make_runner(TASK, use_registered_runner=True)
+        course = SteppingStoneCurriculum(source.env.cfg.curriculum["stepping_stone_levels"], source.env)
+        course.level_cap = 2
+        course.window.extend([True, False, True])
+        source.current_learning_iteration = 53
+        source.env.common_step_counter = 1200
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "course.pt"
+            source.save(str(path))
+            restored = make_runner(TASK, use_registered_runner=True)
+            target = SteppingStoneCurriculum(restored.env.cfg.curriculum["stepping_stone_levels"], restored.env)
+            restored.load(str(path), map_location="cpu")
+            self.assertEqual(target.level_cap, 2)
+            self.assertEqual(list(target.window), [True, False, True])
+            self.assertEqual(restored.current_learning_iteration, 53)
+            self.assertEqual(restored.env.common_step_counter, 1200)
+
+    def test_actor_only_load_preserves_current_curriculum_and_counters(self):
+        runner = make_runner(TASK, use_registered_runner=True)
+        course = SteppingStoneCurriculum(runner.env.cfg.curriculum["stepping_stone_levels"], runner.env)
+        course.level_cap = 2
+        course.window.extend([True, True])
+        runner.current_learning_iteration = 53
+        runner.env.common_step_counter = 1200
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "course.pt"
+            runner.save(str(path))
+            course.level_cap = 1
+            course.window.clear()
+            course.window.append(False)
+            runner.current_learning_iteration = 7
+            runner.env.common_step_counter = 42
+            runner.load(str(path), load_cfg={"actor": True}, map_location="cpu")
+            self.assertEqual(course.level_cap, 1)
+            self.assertEqual(list(course.window), [False])
+            self.assertEqual(runner.current_learning_iteration, 7)
+            self.assertEqual(runner.env.common_step_counter, 42)
+
+    def test_training_uses_progress_and_actor_only_load_selects_checkpoint_observations(self):
+        runner = make_runner(TASK, use_registered_runner=True)
+        term = runner.env.cfg.observations["actor"].terms["foot_contact"]
+        self.assertTrue(term.params["support_progress"])
+        self.assertFalse(load_env_cfg(TASK, play=True).observations["actor"].terms["foot_contact"].params["support_progress"])
+        with tempfile.TemporaryDirectory() as directory:
+            current = Path(directory) / "current.pt"
+            legacy = Path(directory) / "legacy.pt"
+            runner.save(str(current))
+            make_runner(TASK).save(str(legacy))
+            runner.load(str(legacy), map_location="cpu")
+            self.assertTrue(term.params["support_progress"])
+            runner.load(str(legacy), load_cfg={"actor": True}, map_location="cpu")
+            self.assertFalse(term.params["support_progress"])
+            runner.load(str(current), load_cfg={"actor": True}, map_location="cpu")
+            self.assertTrue(term.params["support_progress"])
+            self.assertEqual(runner.env.observation_manager.reset.call_count, 2)
+            output = prepare_transfer(TASK, current, "progress", output_root=directory)
+            runner.load(str(output), load_cfg={"actor": True}, map_location="cpu")
+            self.assertTrue(term.params["support_progress"])
+            self.assertTrue(torch.load(output, weights_only=True)["infos"][SUPPORT_PROGRESS_INFO_KEY])
+
     def test_source_observation_columns_remain_a_prefix_of_the_target(self):
         source = load_env_cfg("PointLeg-Flat-v0")
         target = load_env_cfg(TASK)
@@ -52,7 +125,7 @@ class SteppingStonesTransferTests(unittest.TestCase):
             source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
             output = prepare_transfer(TASK, source, "flat_pretrained", output_root=root)
             saved = torch.load(output, map_location="cpu", weights_only=False)
-            for key, width, target_width in (("actor_state_dict", 45, 105), ("critic_state_dict", 325, 381)):
+            for key, width, target_width in (("actor_state_dict", 45, 123), ("critic_state_dict", 325, 399)):
                 self.assertEqual(saved[key]["mlp.0.weight"].shape, (512, target_width))
                 for name, value in original[key].items():
                     if name == "mlp.0.weight":
@@ -65,14 +138,14 @@ class SteppingStonesTransferTests(unittest.TestCase):
             self.assertEqual(saved["infos"]["env_state"]["common_step_counter"], 0)
             metadata = json.loads((output.parent / "transfer.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["source_sha256"], source_hash)
-            self.assertEqual((metadata["actor_added_columns"], metadata["critic_added_columns"]), (60, 56))
+            self.assertEqual((metadata["actor_added_columns"], metadata["critic_added_columns"]), (78, 74))
             self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), source_hash)
             resumed = make_runner(TASK)
             resumed.load(str(output), strict=True, map_location="cpu")
             self.assertEqual(resumed.current_learning_iteration, 0)
             for old_model, new_model, width, extra in (
-                (source_runner.alg.actor, resumed.alg.actor, 45, 60),
-                (source_runner.alg.critic, resumed.alg.critic, 325, 56),
+                (source_runner.alg.actor, resumed.alg.actor, 45, 78),
+                (source_runner.alg.critic, resumed.alg.critic, 325, 74),
             ):
                 observation = torch.randn(8, width)
                 extended = torch.cat((observation, torch.randn(8, extra)), dim=1)
@@ -89,6 +162,25 @@ class SteppingStonesTransferTests(unittest.TestCase):
             for key, model in (("actor_state_dict", runner.alg.actor), ("critic_state_dict", runner.alg.critic)):
                 for name, value in model.state_dict().items():
                     torch.testing.assert_close(saved[key][name], value, rtol=0, atol=0)
+
+    def test_legacy_105_column_checkpoint_expands_to_fixed_gait(self):
+        runner = make_runner(TASK)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "legacy.pt"
+            runner.save(str(source))
+            original = torch.load(source, weights_only=False)
+            for key, width in (("actor_state_dict", 105), ("critic_state_dict", 381)):
+                original[key]["mlp.0.weight"] = original[key]["mlp.0.weight"][:, :width].clone()
+            torch.save(original, source)
+            output = prepare_transfer(TASK, source, "fixed_gait", output_root=directory)
+            saved = torch.load(output, weights_only=False)
+            for key, width in (("actor_state_dict", 105), ("critic_state_dict", 381)):
+                weight = saved[key]["mlp.0.weight"]
+                torch.testing.assert_close(weight[:, :width], original[key]["mlp.0.weight"], atol=0, rtol=0)
+                self.assertEqual(weight[:, width:].count_nonzero(), 0)
+                self.assertEqual(weight.shape[1] - width, 18)
+            self.assertEqual(saved["infos"][FIXED_GAIT_INFO_KEY], 1)
+            make_runner(TASK).load(str(output), strict=True, map_location="cpu")
 
     def test_unknown_input_size_is_rejected_before_creating_an_output(self):
         runner = make_runner("PointLeg-Flat-v0")

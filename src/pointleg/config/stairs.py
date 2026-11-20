@@ -10,8 +10,9 @@ from .elevation_basic import make_paired_elevation_env_cfg
 from ..mdp.elevation_basic import ElevationBasicProlongedSwingPenalty, ElevationBasicStallPenalty
 from ..mdp.elevation_support import ElevationMeanPosturePenalty
 from ..mdp.slope import StepTimingPenalty
-from ..mdp.stairs import StairsFootPlacement, StairsFourFootStandstill, StairsProgressReward, StairsSwingLiftPenalty, StairsThighAlignmentPenalty, stairs_hip_abduction_zero, stairs_task_metric
+from ..mdp.stairs import StairsFootPlacement, StairsFourFootStandstill, StairsFrontReachPenalty, StairsFrontStepSequencePenalty, StairsFrontSupportPenalty, StairsLeftFrontTrackingPenalty, StairsProgressReward, StairsRearThighAboveBodyPenalty, StairsShinContactPenalty, StairsStuckRecoveryReward, StairsSwingKneeFlexReward, StairsSwingLiftPenalty, StairsSwingSpeedPenalty, StairsThighAlignmentPenalty, stairs_hip_abduction_zero, stairs_task_metric
 from .rl_cfg import elevation_ppo_runner_cfg
+from ..mdp.stairs import StairsRightFrontHipLimitPenalty, StairsRightFrontKneeFlexLimitPenalty
 
 
 def stairs_env_cfg(play=False):
@@ -22,18 +23,35 @@ def stairs_env_cfg(play=False):
         generator.sub_terrains[name].stair_height_override = None
         generator.sub_terrains[name].stair_height_range = (.06, .12)
     original = cfg.events["reset_elevation"].params["settings"]
-    settings = replace(original, speed_range=(.15, .30))
+    settings = replace(original, speed_range=(.10, .20))
     for event in cfg.events.values():
         if event.params.get("settings") is original:
             event.params["settings"] = settings
     cfg.commands["twist"].ranges.lin_vel_x = settings.speed_range
     cfg.episode_length_s = 120.
-    for key in ("up_fraction", "down_fraction", "exit_loaded_feet", "covered_treads", "clearance_failed"):
-        cfg.metrics["stairs_" + key] = MetricsTermCfg(func=stairs_task_metric, params={"key": key})
+    for key in ("up_fraction", "down_fraction", "exit_loaded_feet", "middle_loaded_feet", "covered_treads", "clearance_failed"):
+        cfg.metrics["stairs_" + key] = MetricsTermCfg(
+            func=stairs_task_metric, params={"key": key},
+            reduce="last" if key in ("middle_loaded_feet", "covered_treads") else "mean")
     cfg.rewards.update({
         "stairs_progress": RewardTermCfg(func=StairsProgressReward, weight=1., params={}),
-        "swing_lift_deficit": RewardTermCfg(func=StairsSwingLiftPenalty, weight=-1., params={}),
-        "thigh_body_alignment": RewardTermCfg(func=StairsThighAlignmentPenalty, weight=-.35, params={"tolerance_degrees": 45., "scale_degrees": 30., "approach_margin": .4}),
+        "swing_lift_deficit": RewardTermCfg(func=StairsSwingLiftPenalty, weight=-2., params={}),
+        "swing_knee_flexion": RewardTermCfg(func=StairsSwingKneeFlexReward, weight=.2, params={}),
+        "swing_joint_speed": RewardTermCfg(func=StairsSwingSpeedPenalty, weight=-.2, params={}),
+        "down_shin_contact": RewardTermCfg(func=StairsShinContactPenalty, weight=-2.5, params={}),
+        "front_support_loss": RewardTermCfg(func=StairsFrontSupportPenalty, weight=-2., params={}),
+        "front_premature_takeoff": RewardTermCfg(func=StairsFrontStepSequencePenalty, weight=-.5, params={"stable_time": .20}),
+        "front_overreach": RewardTermCfg(func=StairsFrontReachPenalty, weight=-1.5, params={"tolerance": .18}),
+        "fr_hip_forward_limit": RewardTermCfg(
+            func=StairsRightFrontHipLimitPenalty, weight=-5.,
+            params={"maximum_forward_degrees": 20., "scale_degrees": 10.}),
+        "fr_knee_min_flexion": RewardTermCfg(
+            func=StairsRightFrontKneeFlexLimitPenalty, weight=-5.,
+            params={"minimum_flexion_degrees": 30., "scale_degrees": 10.}),
+        "rear_thigh_above_body": RewardTermCfg(func=StairsRearThighAboveBodyPenalty, weight=-2., params={"scale_degrees": 10.}),
+        "stuck_foot_recovery": RewardTermCfg(func=StairsStuckRecoveryReward, weight=.5, params={}),
+        "thigh_body_alignment": RewardTermCfg(func=StairsThighAlignmentPenalty, weight=-.35, params={"offset_degrees": 15., "tolerance_degrees": 10., "scale_degrees": 30., "approach_margin": .4}),
+        "left_front_rear_tracking": RewardTermCfg(func=StairsLeftFrontTrackingPenalty, weight=-.5, params={}),
         "tread_foot_placement": RewardTermCfg(func=StairsFootPlacement, weight=.5, params={}),
         "four_foot_standstill": RewardTermCfg(func=StairsFourFootStandstill, weight=-5., params={}),
         "forward_stall": RewardTermCfg(
@@ -52,8 +70,8 @@ def stairs_env_cfg(play=False):
                     "tolerance": 0., "deviation_scale": .25},
         ),
         "step_timing": RewardTermCfg(
-            func=StepTimingPenalty, weight=-.2,
-            params={"command_name": "twist", "minimum_force": 8., "target_period": .70,
+            func=StepTimingPenalty, weight=-.4,
+            params={"command_name": "twist", "minimum_force": 8., "target_period": .80,
                     "period_tolerance": .10, "period_scale": .30, "minimum_stance": .30,
                     "stance_scale": .20, "maximum_air": .55, "air_scale": .20,
                     "contact_confirmation": .06, "release_confirmation": .04,

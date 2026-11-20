@@ -15,21 +15,40 @@ import runpy
 import sys
 
 
-def run_debug_training(task_id: str, arguments: list[str]) -> None:
-    """Apply debug defaults before parsing the native training overrides."""
+COMPETITION_TRAINING_FLAGS = ("--competition-six", "--competition-six-curriculum")
+
+
+def _run_training_with_presets(
+    task_id: str, arguments: list[str], *, debug: bool = False, competition_flag: str | None = None,
+) -> None:
+    """Apply training presets before parsing the native overrides."""
     import mjlab
     import tyro
 
     from mjlab.scripts.train import TrainConfig, launch_training
-    from pointleg.config.debug import configure_debug_training
 
     defaults = TrainConfig.from_task(task_id)
-    configure_debug_training(defaults.env, defaults.agent)
+    program = f"pointleg train {task_id}"
+    if debug:
+        from pointleg.config.debug import configure_debug_training
+
+        configure_debug_training(defaults.env, defaults.agent)
+        program += " --debug"
+    if competition_flag is not None:
+        from pointleg.config.stepping_stones import configure_competition_six
+
+        configure_competition_six(defaults.env, gap_curriculum=competition_flag == "--competition-six-curriculum")
+        program += f" {competition_flag}"
     args = tyro.cli(
         TrainConfig, args=arguments, default=defaults,
-        prog=f"pointleg train {task_id} --debug", config=mjlab.TYRO_FLAGS,
+        prog=program, config=mjlab.TYRO_FLAGS,
     )
     launch_training(task_id, args)
+
+
+def run_debug_training(task_id: str, arguments: list[str]) -> None:
+    """Apply debug defaults before parsing the native training overrides."""
+    _run_training_with_presets(task_id, arguments, debug=True)
 
 
 def run_jump_warmup(arguments: list[str]) -> None:
@@ -88,6 +107,19 @@ def main() -> None:
         if command != "train" or len(sys.argv) < 2 or sys.argv[1] != "PointLeg-Jump-v0":
             raise SystemExit("--warmup requires: pointleg train PointLeg-Jump-v0 --warmup")
         run_jump_warmup([argument for argument in sys.argv[2:] if argument != "--warmup"])
+        return
+    competition_flags = [flag for flag in COMPETITION_TRAINING_FLAGS if flag in sys.argv[1:]]
+    if competition_flags:
+        if len(competition_flags) > 1:
+            raise SystemExit("Choose one competition training preset.")
+        competition_flag = competition_flags[0]
+        if command != "train" or len(sys.argv) < 2 or sys.argv[1] != "PointLeg-SteppingStones-v0":
+            raise SystemExit(f"{competition_flag} requires: pointleg train PointLeg-SteppingStones-v0 {competition_flag}")
+        flags = {competition_flag, "--debug"}
+        arguments = [argument for argument in sys.argv[2:] if argument not in flags]
+        _run_training_with_presets(
+            sys.argv[1], arguments, debug="--debug" in sys.argv[2:], competition_flag=competition_flag,
+        )
         return
     if "--debug" in sys.argv[1:]:
         if command != "train" or len(sys.argv) < 2 or sys.argv[1] not in task_specs:

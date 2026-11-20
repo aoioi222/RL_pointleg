@@ -1,5 +1,49 @@
 # 验证与排查
 
+## 2026-11-18 计价/终止冲突复查与训练启动
+
+构造8/9s失败，旧额外项均为0；构造成功标记与90°姿态失败同周期发生，旧函数仍返回成功并发40。修复为60s失败窗口，成功终止后置并读取已计算的物理失败。新增5项检查涵盖后半段计价、物理失败优先、直接调用时姿态复核、重复未完成摆动的预算、重复部分落脚覆盖/中心不重发。组合164项在36.001s通过，3文件AST/行尾空白通过。最初因−262.6的float32积分误差3.05e−5超出3e−5绝对容差，测试改用1e−4后通过，生产计算未为此调整。
+
+随后按用户明确授权启动512环境2000次GPU训练，目录 `2026-11-18_14-25-04_train_3_audit_2000`，首个检查点为123/399、iter=0，课程状态可读。保存配置确认60s窗口和成功终止末项。训练尚在进行，静态通过与启动核验均不代表行为已验收。
+
+## 2026-11-18 反向摆腿修复验证
+
+读取 `2026-11-18_12-04-36_train_1` 至 step=999，末 100 条记录平均赛道速度 −0.230413 m/s、完整步数/覆盖 0、激活 1、双摆确认约 0.973、回合 31.7939 控制步。静态 MJCF FK 首步 LF/RR 目标分别向前约 0.277933/0.060 m。纯 Torch 双摆后退 5 cm、抬高 5 cm、保持 0.6 s，旧规则进度 +0.5、等待 0，修正后进度 0、后退代价约 −1.535999。
+
+复用已有组合命令，159 项在 23.299 s 全部通过，较上轮新增八项，覆盖后摆无收益、原地抬高无收益、必要后向纠偏、支撑足豁免、机身倒退和出口整理、提前失败事件计费、成功豁免、控制周期积分一致性。五个修改 Python 文件 AST 与行尾空白检查通过。没有物理步进、Viser、PPO 或训练，未证明策略动作已恢复。
+
+## 2026-11-18 固定步态二次审查回归
+
+先用四项针对性测试复现旧逻辑错误，全部产生 phase=[1,1] 的错误换步。输入分别为合格摆动后落回原地再滑到目标、20 ms 高抬后着地再擦地 40 ms、双摆后再次单足起落、支撑足失撑期间的摆动接恢复后 20 ms。修复后四项拒绝错误换步，重新完成合法摆动可以恢复推进。
+
+同一组合命令运行 151 项，21.490 s 全部通过。相较 142 项新增九项，覆盖四种资格复用、同桩目标分离、重叠脚拒绝、两后足距离惩罚、课程完整续训恢复、Actor-only 加载保留状态。完整 3/6 桩腿序、部分重置、奖励积分、失败优先、旧 105 模型和 ONNX 兼容检查通过。五个修改 Python 文件 AST 与行尾空白检查通过。未运行物理步进、Viser、PPO 或训练，未验证收敛和实际通过率。
+
+## 2026-11-18 起步停滞复现与回归
+
+TensorBoard 读取 `2026-11-18_01-26-20_fixed_gait_30000` 至 step=8924。首步完成全程 0，最近 200 条记录的平均步序计时 0.000143 s、覆盖 0、进度与等待奖励接近 0，平均回合长度约 581.283 控制步。纯 Torch 复现右后悬空 1 s 时，修复前 ready=False、age=0、delay=0、mask=[0,0,0,0]。修复后 ready=True、age≈1、delay≈0.2762497 s、mask=[1,0,0,1]、完成 0，验证激活和持续计罚，同时保留整步约束。
+
+复用上一条组合命令，142 项检查通过，18.940 s。增加首次无四足承重启动、独立足反馈封顶、只迈右后的等待代价、非有限/失败启动拒绝、首次策略观测和诊断指标六项回归。原生静态用例核对首次与重置后观测。6 个修改 Python 文件 AST 和行尾空白检查通过。未运行物理步进、Viser、PPO 或新训练，未证明实际策略恢复。
+
+## 2026-11-18 梅花桩固定腿序
+
+136 项检查通过，耗时 15.571 s。组合包含 `pointleg.tests.test_fixed_stone_gait`、`test_stepping_stones`、`test_stepping_stones_transfer`、`test_pointleg`、`sim2sim.tests.test_pointleg_export` 和 10 项明确无物理步进的 `PointLegSim2SimTests` 方法。覆盖实际生成 3～6 桩及最终 XML 一致性、完整前六步/循环/出口、双摆重叠、擦地/弱承重/小腿借力拒绝、台沿余量、同面支撑、80 ms 落脚、奖励经理 dt 积分、失败优先、部分重置、123/399 追加列和 105→123 检查点扩展。旧 handoff 回归使用显式历史配置夹具。ONNX 105/123 及原平地规范化往返均通过。15 个相关 Python 文件 AST 解析通过，没有行尾空白。
+
+命令前缀为 `.venv/Scripts/python.exe -c "import tempfile,unittest; tempfile.tempdir=r'E:\OneDrive\Desktop\RC_WheelLeg-main\05_software\train\rc_mjlab'; unittest.main(module=None)"`，后接上述测试选择和 `-q -b`。首次运行受沙箱系统 Temp 中 ONNX `os.replace` 权限影响，改用工作区临时目录后全部通过。未修改导出发布逻辑，未执行物理步进、Viser、PPO 或训练，未使用现有真实模型文件。详细方法选择与代码入口见调整记录。
+
+2026-11-07 Stairs速度改为0.10～0.20米/秒后，`test_stairs`、`test_slope`、`test_elevation_paired`、`test_elevation_fixed_stairs`和`test_elevation.ElevationLogicTests`共74项通过。64个合成环境固定种子重置，采样约0.10050～0.19593米/秒。无物理场景的CPU runner严格加载`2026-11-07_01-06-13_train_12/model_11000.pt`，确认轮次11000、上下阶课程上限[4,4]及当前速度0.10～0.20米/秒，旧速度配置触发预期警告。未启动仿真或训练，实际行走速度和成功率待续训验证。
+
+2026-11-04 Stairs旧完成标准checkpoint续训：额外合成旧契约检查点，验证保留解锁等级而清空上下课程成功率窗口，五组共64项通过（2.631秒）；未修改用户真实检查点或进行物理仿真。
+
+2026-11-04 Stairs三级中间平台成功：`test_stairs`、`test_slope`、`test_elevation_paired`、`test_elevation_fixed_stairs`、`test_elevation.ElevationLogicTests`共63项通过（3.144秒），覆盖上下行前三阶覆盖、四足8N中间平台承重、缺阶/三足/弱承重/错高/第三阶非平台/越平台拒绝、成功+20和失败优先−50、坡面及旧任务逻辑；六文件py_compile通过。未运行仿真或训练。
+
+2026-11-04 Stairs摆动屈膝奖励：`test_stairs`、`test_slope`、`test_elevation_paired`、`test_elevation_fixed_stairs`共45项通过（2.555秒），覆盖摆动屈膝、原默认角、原地、承重、饱和及同周期缓存；四文件py_compile通过。未运行仿真/训练。
+
+2026-11-04 Stairs大腿坡度角目标：`test_stairs`、`test_slope`、`test_elevation_paired`、`test_elevation_fixed_stairs`共44项通过（2.515秒），覆盖五档实际目标、目标角零罚、水平/竖直超范围受罚、下阶/远离阶梯不罚和原课程回归；四文件py_compile通过。未运行物理仿真、回放或训练，不保证姿态或爬阶性能。
+
+2026-11-04 Stairs抬升惩罚加倍：`test_stairs`、`test_slope`、`test_elevation_paired`、`test_elevation_fixed_stairs`共43项通过（2.439秒），包含权重−2配置及各高度目标回归；四文件py_compile通过。未进行仿真、回放或训练，不证明足端越障成功。
+
+2026-11-04 Stairs左前右后姿态软跟踪：`test_stairs`、`test_slope`、`test_elevation_paired`、`test_elevation_fixed_stairs`共43项通过（2.835秒），覆盖单足髋角差受罚、足高差>3厘米惩罚降至25%、不同接触相位不罚、匹配姿态零惩罚及既有课程回归；四文件py_compile通过。未做物理仿真或训练。
+
 2026-11-03 Stairs大腿对机身姿态：`test_stairs`、`test_slope`、`test_elevation_paired`、`test_elevation_fixed_stairs`共42项通过（2.391秒），合成测试覆盖上阶区域水平大腿不罚、一条垂直大腿受罚、下阶和远离台阶不罚，并覆盖既有课程/坡面/续训；四文件py_compile通过。未进行动力学仿真或训练，不能证明姿态和成功率改善。
 
 2026-11-03 Stairs抬脚目标随地形变化：`test_stairs`、`test_slope`、`test_elevation_paired`、`test_elevation_fixed_stairs`共41项通过（2.494秒），验证五档、上/下共10个环境各自高度目标与80%抬升一致的比例惩罚，原低抬脚排序、非失败、缓存/部分reset和固定高度其他任务回归；四文件py_compile通过。未仿真/训练。
@@ -249,3 +293,31 @@ uv --cache-dir ./.venv/uv-diagnostics-cache run --locked --no-sync python -m uni
 
 
 2026-11-01 12:41实际启动tran_4_2，运行目录`logs/rsl_rl/pointleg_high_step/2026-11-01_12-41-56_tran_4_2`，uv启动器PID48076、事件训练PID28384。控制台确认加载原train_3_2/model_10198.pt，已观察迭代10210并写出model_10200.pt；超15厘米惩罚和逐足路程额度/超高量指标已进入TensorBoard，实际采用新版配置。512环境、10001次追加更新、每100次保存，预期末次20198。后台保留供用户验收；42项张量检查、接口/优化器字段/原模型哈希、CLI、AST与diff检查通过，未做独立回放或物理测试，不声明步态已改善。旧train_4已停并保留最后model_17100.pt。启动/运行/预检证据为artifacts/tran_4_2_launch.json、tran_4_2_runtime.json、tran_4_2_preflight.json。
+# 2026-11-04 Stairs 足端卡滞恢复奖励
+
+执行 `.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`：65项通过，含停滞触发、承重足/远离立面/下行排除、抬升越边有效落脚、重复计分与重置的张量检查。未运行物理仿真、Viser或训练，未验证恢复成功率。
+
+2026-11-05 Stairs摆动关节速度惩罚：运行`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，66项通过；覆盖超阈值、边界、承重、不活跃和非有限值。五个相关Python文件py_compile通过；无仿真、训练或实机验证。
+
+2026-11-05 Stairs下阶小腿接触惩罚：运行`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，67项通过；覆盖有效力、阈值、上行排除、失败状态及非有限值。未仿真或训练，未验证实际碰撞改善。
+
+2026-11-05 Stairs前足支撑与前伸：`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，69项通过，覆盖前足双腾空宽限、单足恢复、正反方向前伸和下行排除；未仿真或训练。
+
+2026-11-05 Stairs后腿相对机身越位：`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，70项通过，含有符号高低、机身俯仰旋转和失败状态；未物理仿真或训练。
+
+2026-11-05 Stairs双前足失去支撑立即惩罚：`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，70项通过，覆盖首周期计罚、同周期重复读取、0.12秒饱和和单前足恢复；未仿真/训练。
+
+2026-11-05 Stairs前足换步及下行小腿：`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，71项通过，覆盖提前起脚、稳定支撑后起脚、计时与部分重置、首次基础惩罚和0.80秒配置；无仿真或训练。
+
+2026-11-06 Stairs前足0.20秒承重和后腿越线惩罚：`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，72项通过，覆盖0.10秒不足、0.20秒达到、后腿5度惩罚及原有复位；未仿真或训练。
+
+2026-11-06 Stairs上行前足前伸：`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，72项通过，覆盖入口前1米的前伸、反向和下行排除；未仿真或训练。
+
+2026-11-06 Stairs前足前伸阈值18厘米：`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，72项通过，覆盖18厘米阈值、24厘米超出评分及下行排除；未仿真或训练。
+
+2026-11-06 Stairs前足过度前伸权重−1.5：`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，72项通过，含权重及阈值配置、方向和下行排除；未仿真/训练。
+
+2026-11-07 Stairs右前腿髋摆20°/膝屈曲30°强惩罚：`.venv\Scripts\python.exe -c "import sys,unittest; sys.path.insert(0,'src/pointleg/tests'); s=unittest.defaultTestLoader.loadTestsFromNames(['test_stairs','test_slope','test_elevation_paired','test_elevation_fixed_stairs','test_elevation.ElevationLogicTests']); r=unittest.TextTestRunner(verbosity=1,buffer=True).run(s); sys.exit(not r.wasSuccessful())"`，74项通过，覆盖髋前摆20/30/40°与后摆、机身旋转、膝60/30/20/0°与反向弯折、失败及非有限输入。未运行物理仿真或训练。
+
+2026-11-12梅花桩自由迈步基线执行 `.venv/Scripts/python.exe -B -m unittest pointleg.tests.test_stepping_stones pointleg.tests.test_stepping_stones_transfer pointleg.tests.test_pointleg -q -b`，54项CPU测试通过。覆盖10项权重、自由过桩、20 ms接触窗、同控制步触地失败、腾空时间积分、终点连续支撑、观测和临时检查点转移。未执行物理步进、Viser、训练或实际检查点回放。
+

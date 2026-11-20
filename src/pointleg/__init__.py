@@ -38,6 +38,7 @@ from .config.stairs import stairs_env_cfg, stairs_ppo_runner_cfg
 from .config.slope import slope_env_cfg, slope_ppo_runner_cfg
 from .rsl_rl.runners.elevation_runner import ElevationOnPolicyRunner
 from .rsl_rl.runners.jump_runner import JumpOnPolicyRunner
+from .rsl_rl.runners.stepping_stones_runner import SteppingStonesOnPolicyRunner
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,7 @@ TASK_SPECS: dict[str, TaskSpec] = {
         description="梅花桩精准踏点与全部桩顶接触覆盖",
         env_cfg_factory=stepping_stones_env_cfg,
         rl_cfg_factory=stepping_stones_ppo_runner_cfg,
+        runner_cls=SteppingStonesOnPolicyRunner,
     ),
     "PointLeg-Crawl-v0": TaskSpec(
         description="限高匍匐，后续扩展全身净空和出框判定",

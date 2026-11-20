@@ -116,6 +116,10 @@ class BasicElevationRewardTests(unittest.TestCase):
                     "joint", "torque", "action", "contact_cost", "support_deficit", "task_completed", "task_failed"}
         legacy = load_env_cfg("PointLeg-Elevation-v0")
         self.assertIn("step_quality", legacy.rewards)
+        speed_ranges = {
+            "PointLeg-Stairs-v0": (.10, .20),
+            "PointLeg-Slope-v0": (.15, .30),
+        }
         for task in PAIRS:
             self.assertIn(task, list_tasks())
             for play in (False, True):
@@ -124,13 +128,13 @@ class BasicElevationRewardTests(unittest.TestCase):
                                                  "step_timing", "mean_leg_posture"}
                                                if task in ("PointLeg-Slope-v0", "PointLeg-Stairs-v0") else set())
                 if task == "PointLeg-Stairs-v0":
-                    expected_rewards.update({"stairs_progress", "tread_foot_placement", "four_foot_standstill", "swing_lift_deficit", "thigh_body_alignment"})
+                    expected_rewards.update({"stairs_progress", "tread_foot_placement", "four_foot_standstill", "swing_lift_deficit", "thigh_body_alignment", "left_front_rear_tracking", "swing_knee_flexion", "stuck_foot_recovery", "swing_joint_speed", "down_shin_contact", "front_support_loss", "front_premature_takeoff", "front_overreach", "rear_thigh_above_body", "fr_hip_forward_limit", "fr_knee_min_flexion"})
                 self.assertEqual(set(cfg.rewards), expected_rewards)
                 self.assertTrue(all(term.weight != 0. for term in cfg.rewards.values()))
                 self.assertEqual(cfg.observations, load_env_cfg("PointLeg-Elevation-v0", play=play).observations)
                 self.assertEqual(cfg.actions, load_env_cfg("PointLeg-Elevation-v0", play=play).actions)
                 specialized = task in ("PointLeg-Slope-v0", "PointLeg-Stairs-v0")
-                self.assertEqual(cfg.commands["twist"].ranges.lin_vel_x, (.15, .30) if specialized else (.15, .25))
+                self.assertEqual(cfg.commands["twist"].ranges.lin_vel_x, speed_ranges[task])
                 self.assertEqual(cfg.episode_length_s, 120. if specialized else 60.)
                 settings = cfg.events["reset_elevation"].params["settings"]
                 self.assertEqual(settings.speed_range, cfg.commands["twist"].ranges.lin_vel_x)
@@ -239,7 +243,7 @@ class PairedCheckpointTests(unittest.TestCase):
                 self.assertEqual(data["iter"], 0)
                 self.assertEqual(data["optimizer_state_dict"]["state"], {})
                 self.assertEqual(data["infos"]["elevation_curriculum"]["level_caps"], [0] * 6)
-                expected_revision = 11 if task == "PointLeg-Slope-v0" else 17
+                expected_revision = 11 if task == "PointLeg-Slope-v0" else 34
                 self.assertEqual(data["infos"]["elevation_walking"]["revision"], expected_revision)
                 self.assertEqual(data["infos"]["policy_contract"], {"actor": 45, "critic": 325, "actions": 12})
                 resumed = runner_for(task)

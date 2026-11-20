@@ -15,6 +15,8 @@ from mjlab.rl import MjlabOnPolicyRunner
 from .mdp.elevation import ElevationTerrainCurriculum
 from .rsl_rl.runners.elevation_runner import ElevationOnPolicyRunner
 from .mdp.jump import JumpTerrainCurriculum
+from .mdp.stepping_stones import SUPPORT_PROGRESS_INFO_KEY
+from .mdp.fixed_stone_gait import FIXED_GAIT_INFO_KEY, FIXED_GAIT_OBS_DIM
 from .rsl_rl.runners.jump_runner import JumpOnPolicyRunner
 from .terrains.elevation import ELEVATION_TASK_TERRAINS
 
@@ -36,8 +38,8 @@ class _TransferEnv:
         self.step_dt = 0.02
         self.max_episode_length = int(self.cfg.episode_length_s / 0.02)
         self.unwrapped = self
-        self.actor_observations = 105 if task_id == "PointLeg-SteppingStones-v0" else 45
-        self.critic_observations = 381 if task_id == "PointLeg-SteppingStones-v0" else 325
+        self.actor_observations = 105 + FIXED_GAIT_OBS_DIM if task_id == "PointLeg-SteppingStones-v0" else 45
+        self.critic_observations = 381 + FIXED_GAIT_OBS_DIM if task_id == "PointLeg-SteppingStones-v0" else 325
         if task_id == "PointLeg-Jump-v0":
             self._jump_settings = self.cfg.events["reset_jump"].params["settings"]
             JumpTerrainCurriculum(self.cfg.curriculum["jump_levels"], self)
@@ -57,8 +59,8 @@ def _load_stepping_stones_weights(runner, source):
     checkpoint = torch.load(source, map_location="cpu", weights_only=False)
     source_dims = tuple(checkpoint[key]["mlp.0.weight"].shape[1]
                         for key in ("actor_state_dict", "critic_state_dict"))
-    if source_dims not in ((45, 325), (105, 381)):
-        raise ValueError(f"Stepping-stone transfer requires 45/325 or 105/381 inputs, got {source_dims}")
+    if source_dims not in ((45, 325), (105, 381), (123, 399)):
+        raise ValueError(f"Stepping-stone transfer requires 45/325 or 105/381 or 123/399 inputs, got {source_dims}")
     adapted = {}
     for key, model in (("actor_state_dict", runner.alg.actor), ("critic_state_dict", runner.alg.critic)):
         incoming = dict(checkpoint[key])
@@ -77,6 +79,8 @@ def _load_stepping_stones_weights(runner, source):
         "input_adaptation": "copy existing input columns; zero-initialize additional task columns",
         "actor_added_columns": runner.env.actor_observations - source_dims[0],
         "critic_added_columns": runner.env.critic_observations - source_dims[1],
+        SUPPORT_PROGRESS_INFO_KEY: True,
+        FIXED_GAIT_INFO_KEY: 1,
     }
 
 
@@ -118,7 +122,11 @@ def prepare_transfer(task_id, checkpoint_file, output_run="rough_pretrained", ou
         **adaptation,
     }
     output.mkdir(parents=True, exist_ok=False)
-    runner.save(str(output / "model_0.pt"), infos={"transfer": metadata})
+    infos = {"transfer": metadata}
+    if SUPPORT_PROGRESS_INFO_KEY in adaptation:
+        infos[SUPPORT_PROGRESS_INFO_KEY] = adaptation[SUPPORT_PROGRESS_INFO_KEY]
+        infos[FIXED_GAIT_INFO_KEY] = 1
+    runner.save(str(output / "model_0.pt"), infos=infos)
     (output / "transfer.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output / "model_0.pt"
 

@@ -12,11 +12,13 @@ import numpy as np
 import torch
 
 if __package__:
-    from .pointleg_sim2sim import load_policy
+    from .pointleg_sim2sim import STEPPING_TASK, load_policy, stepping_policy_observation_dim
 else:
-    from pointleg_sim2sim import load_policy
+    from pointleg_sim2sim import STEPPING_TASK, load_policy, stepping_policy_observation_dim
 
 from pointleg import TASK_SPECS
+from pointleg.mdp.stepping_stones import SUPPORT_PROGRESS_INFO_KEY
+from pointleg.mdp.fixed_stone_gait import FIXED_GAIT_INFO_KEY
 
 
 def export_policy(checkpoint: Path, task: str, output: Path | None = None) -> tuple[Path, float]:
@@ -27,7 +29,8 @@ def export_policy(checkpoint: Path, task: str, output: Path | None = None) -> tu
     output = output.expanduser().resolve() if output is not None else checkpoint.with_suffix(".onnx")
     if output.suffix.lower() != ".onnx":
         raise ValueError("Output must have the .onnx extension")
-    model = load_policy(checkpoint, task)
+    obs_dim = stepping_policy_observation_dim(checkpoint) if task == STEPPING_TASK else 45
+    model = load_policy(checkpoint, task, obs_dim)
     try:
         import onnx
         import onnxruntime as ort
@@ -40,22 +43,26 @@ def export_policy(checkpoint: Path, task: str, output: Path | None = None) -> tu
     with tempfile.TemporaryDirectory(prefix="pointleg-export-", dir=output.parent) as directory:
         candidate = Path(directory) / "policy.onnx"
         torch.onnx.export(
-            model, torch.zeros(1, 45), str(candidate),
+            model, torch.zeros(1, obs_dim), str(candidate),
             export_params=True, opset_version=14, dynamo=False,
             input_names=["obs"], output_names=["actions"],
             dynamic_axes={"obs": {0: "batch_size"}, "actions": {0: "batch_size"}},
         )
+        metadata = {}
         if task == "PointLeg-Jump-v0":
             saved = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            metadata["pointleg_jump_contract"] = json.dumps(saved["infos"]["jump_contract"], default=str)
+        elif task == STEPPING_TASK:
+            metadata[SUPPORT_PROGRESS_INFO_KEY] = json.dumps(model.use_support_progress)
+            metadata[FIXED_GAIT_INFO_KEY] = json.dumps(model.fixed_gait)
+        if metadata:
             exported = onnx.load(str(candidate))
-            onnx.helper.set_model_props(exported, {
-                "pointleg_jump_contract": json.dumps(saved["infos"]["jump_contract"], default=str),
-            })
+            onnx.helper.set_model_props(exported, metadata)
             onnx.save(exported, str(candidate))
         onnx.checker.check_model(str(candidate))
         session = ort.InferenceSession(str(candidate), providers=["CPUExecutionProvider"])
-        samples = [torch.zeros(1, 45), torch.randn(1, 45, generator=generator),
-                   torch.randn(4, 45, generator=generator)]
+        samples = [torch.zeros(1, obs_dim), torch.randn(1, obs_dim, generator=generator),
+                   torch.randn(4, obs_dim, generator=generator)]
         for obs in samples:
             with torch.inference_mode():
                 expected = model(obs).numpy()
@@ -73,7 +80,7 @@ def export_policy(checkpoint: Path, task: str, output: Path | None = None) -> tu
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Export a 45-observation, 12-action point-foot policy to ONNX")
+    parser = argparse.ArgumentParser(description="Export a point-foot policy to ONNX")
     parser.add_argument("--task", choices=[name for name, spec in TASK_SPECS.items() if spec.enabled], required=True)
     parser.add_argument(
         "--checkpoint", "--pt-path", "--pt_path", dest="checkpoint", type=Path, required=True,
@@ -86,7 +93,8 @@ def main():
     except (ValueError, RuntimeError, OSError) as exc:
         parser.exit(2, f"Export error: {exc}\n")
     print(f"Exported and verified: {output}")
-    print(f"Task: {args.task}; observations: 45; actions: 12; max absolute error: {max_diff:.8g}")
+    obs_dim = stepping_policy_observation_dim(args.checkpoint) if args.task == STEPPING_TASK else 45
+    print(f"Task: {args.task}; observations: {obs_dim}; actions: 12; max absolute error: {max_diff:.8g}")
 
 
 if __name__ == "__main__":

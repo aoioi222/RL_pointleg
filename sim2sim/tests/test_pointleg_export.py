@@ -15,6 +15,9 @@ from mjlab.tasks.registry import load_rl_cfg
 from rsl_rl.models import MLPModel
 from sim2sim.export_onnx import export_policy, main
 from sim2sim.pointleg_sim2sim import load_policy
+from pointleg.mdp.fixed_stone_gait import FIXED_GAIT_INFO_KEY
+from pointleg.mdp.stepping_stones import SUPPORT_PROGRESS_INFO_KEY
+from sim2sim.pointleg_sim2sim import STEPPING_TASK, stepping_policy_observation_dim
 
 
 TASK = "PointLeg-Flat-v0"
@@ -31,6 +34,25 @@ def make_actor(cfg, obs_dim=45, action_dim=12):
 
 
 class PointLegExportTests(unittest.TestCase):
+    def test_stepping_export_preserves_legacy_and_fixed_gait_interfaces(self):
+        import onnxruntime as ort
+
+        for width in (105, 123):
+            with self.subTest(width=width), tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "stepping.pt"
+                actor = make_actor(load_rl_cfg(STEPPING_TASK), obs_dim=width)
+                torch.save({"actor_state_dict": actor.state_dict(),
+                            "infos": {SUPPORT_PROGRESS_INFO_KEY: True}}, checkpoint)
+                output, max_diff = export_policy(checkpoint, STEPPING_TASK)
+                self.assertLess(max_diff, 1e-5)
+                self.assertEqual(stepping_policy_observation_dim(output), width)
+                policy = load_policy(output, STEPPING_TASK, width)
+                self.assertEqual(policy.fixed_gait, width == 123)
+                self.assertTrue(policy.use_support_progress)
+                session = ort.InferenceSession(str(output), providers=["CPUExecutionProvider"])
+                self.assertEqual(session.get_modelmeta().custom_metadata_map[FIXED_GAIT_INFO_KEY],
+                                 "true" if width == 123 else "false")
+
     def test_roundtrip_native_actor_with_and_without_normalization(self):
         for normalized in (False, True):
             with self.subTest(normalized=normalized), tempfile.TemporaryDirectory() as directory:
