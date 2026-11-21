@@ -57,12 +57,12 @@ class FixedGaitTests(unittest.TestCase):
         ])
 
     def test_right_rear_follows_the_even_stones_at_each_course_level(self):
-        for count in range(3, 7):
+        for count in range(2, 7):
             right_rear_targets = [row[3] for row in foothold_schedule(count) if row[3] != HOLD]
             self.assertEqual(right_rear_targets, [0, *range(2, count + 1, 2), EXIT])
 
     def test_short_courses_have_no_inactive_targets_and_finish_every_foot(self):
-        for count in range(3, 7):
+        for count in range(2, 7):
             surfaces = [0] * 4
             for row in foothold_schedule(count):
                 for leg, target in enumerate(row):
@@ -408,7 +408,7 @@ class FixedGaitTests(unittest.TestCase):
     def test_opening_platform_target_then_left_rear_shares_first_stone(self):
         self.pos[1, 1, 0] = .68
         self.gait._set_targets(self.active, self.pos, self.counts, self.stones, self.exits)
-        torch.testing.assert_close(self.gait.targets[:, 3, 0], torch.tensor([.52, .48]))
+        torch.testing.assert_close(self.gait.targets[:, 3, 0], torch.tensor([.55, .51]))
         torch.testing.assert_close(self.gait.targets[:, 3, 1], self.pos[:, 3, 1])
         self.complete_step()
         self.assertEqual(self.gait.destinations(self.counts)[:, 2].tolist(), [1, 1])
@@ -461,6 +461,32 @@ class FixedGaitTests(unittest.TestCase):
         torch.testing.assert_close(self.gait.targets[1, 3, 0] - self.pos[1, 3, 0], torch.tensor(.60))
         separation = torch.linalg.vector_norm(self.gait.targets[1, 3] - self.pos[1, 1])
         self.assertGreaterEqual(separation.item(), .05)
+
+    def test_left_rear_gap_cost_uses_height_and_both_stone_footprints(self):
+        for _ in range(4):
+            self.complete_step()
+        self.assertEqual(self.gait.support_surface[:, 2].tolist(), [1, 1])
+        self.assertEqual(self.gait.destinations(self.counts)[:, 2].tolist(), [3, 3])
+        self.support[:, 2] = False
+        self.surface[:, 2] = -1
+
+        self.pos[0, 2] = self.stones[0, 0]
+        self.pos[1, 2] = self.stones[1, 2]
+        self.pos[:, 2, 2] -= .025
+        self.tick()
+        torch.testing.assert_close(self.gait.costs["left_rear_gap"], torch.zeros(2))
+
+        self.pos[:, 2, 0] = self.stones[:, 0, 0] + .30
+        self.pos[1, 2, 2] = self.stones[1, 2, 2]
+        self.tick()
+        torch.testing.assert_close(self.gait.costs["left_rear_gap"], torch.tensor([.0025, 0.]))
+
+        self.pos[:, 2] = self.stones[:, 2]
+        self.pos[:, 2, 1] += .12
+        self.pos[:, 2, 2] -= .06
+        self.tick()
+        torch.testing.assert_close(self.gait.costs["left_rear_gap"], torch.tensor([.0075, .005]))
+        self.assertEqual(self.gait.phase.tolist(), [4, 4])
 
     def test_left_front_support_gate_covers_all_right_rear_solo_steps(self):
         self.support[1, 0] = False
@@ -531,11 +557,11 @@ class FixedGaitTests(unittest.TestCase):
 
 
 class CompetitionCurriculumTests(unittest.TestCase):
-    def test_competition_curriculum_is_three_to_six_with_fixed_spacing(self):
+    def test_competition_curriculum_uses_two_four_and_six_with_fixed_spacing(self):
         cfg = SteppingStonesTerrainCfg(size=(8., 8.), competition=True)
-        for level in range(4):
-            count, gap = cfg.count_and_gap(level / 3)
-            self.assertEqual(count, level + 3)
+        for difficulty, expected in ((0., 2), (.5, 4), (1., 6)):
+            count, gap = cfg.count_and_gap(difficulty)
+            self.assertEqual(count, expected)
             self.assertEqual(gap, .10)
             centers = stone_centers(count, gap, size=cfg.stone_size)
             np.testing.assert_allclose(np.diff(centers[:, 0]), .30)
@@ -544,13 +570,15 @@ class CompetitionCurriculumTests(unittest.TestCase):
 
     def test_physical_course_count_and_final_scene_match_competition_xml(self):
         cfg = load_env_cfg("PointLeg-SteppingStones-v0").scene.terrain.terrain_generator
-        self.assertEqual((cfg.num_rows, cfg.num_cols), (4, 1))
+        self.assertEqual((cfg.num_rows, cfg.num_cols), (3, 1))
         terrain = cfg.sub_terrains["competition_stones"]
-        for level in range(4):
+        for difficulty, count, exit_start in ((0., 2, 1.5), (.5, 4, 2.1), (1., 6, 2.7)):
             spec = mujoco.MjSpec()
             spec.worldbody.add_body(name="terrain")
-            output = terrain.function(level / 3, spec, np.random.default_rng(1))
-            self.assertEqual(len(output.geometries), level + 6)
+            output = terrain.function(difficulty, spec, np.random.default_rng(1))
+            self.assertEqual(len(output.geometries), count + 3)
+            exit_box = output.geometries[-1].geom
+            self.assertAlmostEqual(exit_box.pos[0] - output.origin[0] - exit_box.size[0], exit_start)
         scene = Path(__file__).resolve().parents[3] / "sim2sim/terrain/scene_terrain.xml"
         body = ElementTree.parse(scene).find(".//body[@name='stepping_stones']")
         expected = [body.find("geom[@name='stones_entry_platform']")]
@@ -582,7 +610,7 @@ class FixedGaitIntegrationTests(unittest.TestCase):
         self.env = fake_env(2)
         self.env.cfg = load_env_cfg("PointLeg-SteppingStones-v0")
         self.env.scene.terrain.cfg = self.env.cfg.scene.terrain
-        self.env.scene.terrain.terrain_levels[:] = torch.tensor([0, 3])
+        self.env.scene.terrain.terrain_levels[:] = torch.tensor([0, 2])
         mdp.reset_stepping_stones(self.env, None)
         self.state = self.env._stepping_stones
         self.gait = self.state["fixed_gait"]
@@ -612,13 +640,46 @@ class FixedGaitIntegrationTests(unittest.TestCase):
         self.tick(16)
 
     def test_real_collector_credits_only_ordered_stable_landings(self):
-        self.assertEqual(self.state["active_count"].tolist(), [3, 6])
+        self.assertEqual(self.state["active_count"].tolist(), [2, 6])
         self.assertTrue(self.gait.ready.all())
         self.swing()
         self.assertEqual(self.gait.phase.tolist(), [1, 1])
         self.assertTrue(self.state["visited"][:, 0].all())
         self.assertFalse(self.state["visited"][:, 1:].any())
         self.assertEqual(mdp.fixed_gait_observation(self.env).shape, (2, 18))
+
+    def test_left_rear_drop_counts_before_the_two_stone_exit_edge(self):
+        for _ in range(4):
+            self.swing()
+        self.assertEqual(self.gait.support_surface[:, 2].tolist(), [1, 1])
+        self.assertEqual(self.gait.destinations(self.state["active_count"])[:, 2].tolist(), [EXIT, 3])
+        name = "stepping_gait_left_rear_gap"
+        manager = RewardManager({name: self.env.cfg.rewards[name]}, self.env)
+        self.found[:, 2] = False
+        self.pos[:, 2] = self.state["stone_centers"][:, 0]
+        self.pos[:, 2, 0] += .30
+        self.pos[:, 2, 2] -= .06
+        self.tick(4)
+        torch.testing.assert_close(manager.compute(.02), torch.tensor([-.16, -.16]))
+
+        self.pos[:, 2] = self.gait.targets[:, 2]
+        self.pos[0, 2, 0] = self.state["right_platform_start"][0] - .01
+        self.pos[0, 2, 2] -= .06
+        self.tick(4)
+        torch.testing.assert_close(manager.compute(.02), torch.tensor([-.16, 0.]))
+
+        self.pos[0, 2, 0] += .02
+        self.tick(4)
+        torch.testing.assert_close(manager.compute(.02), torch.zeros(2))
+
+    def test_left_rear_gap_penalty_ignores_the_opening_hold(self):
+        self.assertEqual(self.gait.destinations(self.state["active_count"])[:, 2].tolist(), [HOLD, HOLD])
+        name = "stepping_gait_left_rear_gap"
+        manager = RewardManager({name: self.env.cfg.rewards[name]}, self.env)
+        self.found[0, 2] = self.found[1, 3] = False
+        self.pos[0, 2, [0, 2]] = self.pos[1, 3, [0, 2]] = torch.tensor([.85, .14])
+        self.tick(4)
+        torch.testing.assert_close(manager.compute(.02), torch.zeros(2))
 
     def test_body_sink_penalty_covers_stationary_root_drop_and_nose_dive_only_during_traversal(self):
         env = self.env
@@ -780,7 +841,9 @@ class FixedGaitIntegrationTests(unittest.TestCase):
         terms = {name: self.env.cfg.rewards[name] for name in ("stepping_gait_complete", "stepping_cover")}
         manager = RewardManager(terms, self.env)
         self.swing()
-        torch.testing.assert_close(manager.compute(.02), torch.tensor([8., 6.]))
+        first_step = terms["stepping_gait_complete"].weight
+        first_cover = terms["stepping_cover"].weight / self.state["active_count"]
+        torch.testing.assert_close(manager.compute(.02), first_step + first_cover)
         self.env.reset_terminated = torch.ones(2, dtype=torch.bool)
         torch.testing.assert_close(mdp.fixed_gait_reward(self.env, "complete", event=True), torch.zeros(2))
         self.env.reset_terminated.zero_()
@@ -906,6 +969,20 @@ class FixedGaitIntegrationTests(unittest.TestCase):
         torch.testing.assert_close(mdp.stepping_failure_reward(self.env) * -25 * .02, torch.tensor([-25., 0.]))
         self.assertEqual(list(self.env.cfg.terminations)[-1], "stepping_succeeded")
 
+    def test_terminal_penalty_doubles_for_foot_ground_contact_only(self):
+        self.pos[0, 2, 2] = 0.0
+        self.tick(4)
+        self.env.termination_manager = TerminationManager({
+            "joint_limit": TerminationTermCfg(func=lambda env: torch.tensor([False, True])),
+            "stepping_failed": self.env.cfg.terminations["stepping_failed"],
+            "stepping_succeeded": self.env.cfg.terminations["stepping_succeeded"],
+        }, self.env)
+        self.env.termination_manager.compute()
+        self.env.reset_terminated = self.env.termination_manager.terminated
+        name = "stepping_failure"
+        manager = RewardManager({name: self.env.cfg.rewards[name]}, self.env)
+        torch.testing.assert_close(manager.compute(.02), torch.tensor([-50., -25.]))
+
     def test_bad_orientation_cannot_keep_a_latched_success_without_a_manager(self):
         self.state["success"][:] = True
         self.state["success_pulse"][:] = 1.
@@ -923,7 +1000,7 @@ class FixedGaitIntegrationTests(unittest.TestCase):
         self.pos[:, 0] = self.gait.targets[:, 0]
         self.found[:, 0] = True
         self.tick(16)
-        torch.testing.assert_close(manager.compute(.02), torch.tensor([4.5, 2.5]), atol=1e-5, rtol=0)
+        torch.testing.assert_close(manager.compute(.02), torch.tensor([6.5, 2.5]), atol=1e-5, rtol=0)
         self.tick(4)
         for _ in range(3):
             self.found[:, 0] = False
@@ -964,7 +1041,7 @@ class FixedGaitIntegrationTests(unittest.TestCase):
                 break
         self.assertTrue(self.gait.done.all())
         self.assertTrue(self.state["visited"][1, :6].all())
-        self.assertTrue(self.state["visited"][0, :3].all())
+        self.assertTrue(self.state["visited"][0, :2].all())
         self.assertEqual(self.state["stage"].tolist(), [3, 3])
         self.tick(140)
         self.assertTrue(self.state["success"].all())

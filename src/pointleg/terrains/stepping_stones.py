@@ -15,7 +15,7 @@ MAX_STONES = 8
 STONE_SIZE = 0.15
 COMPETITION_STONE_SIZE = 0.20
 COMPETITION_STONE_COUNT = 6
-MIN_CURRICULUM_STONES = 3
+COMPETITION_STONE_COUNTS = (2, 4, COMPETITION_STONE_COUNT)
 STONE_HEIGHT = 0.20
 STONE_ROW_OFFSET = 0.20
 PLATFORM_SIZE = 0.80
@@ -65,8 +65,8 @@ class SteppingStonesTerrainCfg(SubTerrainCfg):
 
     def count_and_gap(self, difficulty: float) -> tuple[int, float]:
         if self.competition or self.six_stone_gap_curriculum:
-            count = MIN_CURRICULUM_STONES + round(float(np.clip(difficulty, 0.0, 1.0)) * 3)
-            return count, 0.10
+            level = round(float(np.clip(difficulty, 0.0, 1.0)) * (len(COMPETITION_STONE_COUNTS) - 1))
+            return COMPETITION_STONE_COUNTS[level], 0.10
         count = stone_count_from_difficulty(difficulty)
         return count, self.gap_for_count(count)
 

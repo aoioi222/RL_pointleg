@@ -20,7 +20,7 @@ from .elevation import deadband_cost
 from .fixed_stone_gait import HOLD, FixedStoneGait
 from ..robot_cfg import FOOT_BODY_NAMES, FOOT_SITE_NAMES, LEG_NAMES
 from ..terrains.stepping_stones import (
-    MAX_STONES, PLATFORM_HEIGHT, PLATFORM_SIZE, right_platform_start, stone_centers,
+    MAX_STONES, PLATFORM_HEIGHT, PLATFORM_SIZE, SteppingStonesTerrainCfg, right_platform_start, stone_centers,
 )
 
 
@@ -871,10 +871,16 @@ def stepping_timeout(env) -> torch.Tensor:
     return env.episode_length_buf >= env.max_episode_length
 
 
-def stepping_failure_reward(env) -> torch.Tensor:
+def stepping_failure_reward(env, ground_contact_multiplier: float = 1.0) -> torch.Tensor:
     state = _state(env)
     terminated = getattr(env, "reset_terminated", state["failure"])
-    return (terminated & ~state["success"]).float() / env.step_dt
+    failed = terminated & ~state["success"]
+    penalty = failed.float()
+    manager = getattr(env, "termination_manager", None)
+    if ground_contact_multiplier != 1.0 and manager is not None and "stepping_failed" in manager.active_terms:
+        ground_contact = manager.get_term("stepping_failed")
+        penalty += (ground_contact_multiplier - 1.0) * (failed & ground_contact)
+    return penalty / env.step_dt
 
 
 def stepping_early_failure_penalty(env, grace_time_s: float) -> torch.Tensor:
@@ -1345,17 +1351,36 @@ class SteppingStoneCurriculum:
             raise ValueError("Invalid stepping-stone curriculum thresholds.")
         self.level_cap = int(params.get("initial_level_cap", 0))
         self.window: deque[bool] = deque(maxlen=self.window_size)
-        self.maximum = env.cfg.scene.terrain.terrain_generator.num_rows - 1
+        generator = env.cfg.scene.terrain.terrain_generator
+        self.maximum = generator.num_rows - 1
+        self.stone_counts = ()
+        if len(generator.sub_terrains) == 1:
+            terrain_cfg = next(iter(generator.sub_terrains.values()))
+            if isinstance(terrain_cfg, SteppingStonesTerrainCfg) and terrain_cfg.competition:
+                self.stone_counts = tuple(
+                    terrain_cfg.count_and_gap(difficulty)[0]
+                    for difficulty in np.linspace(*generator.difficulty_range, generator.num_rows)
+                )
         env._stepping_stone_curriculum = self
 
     def state_dict(self):
-        return {"level_cap": self.level_cap, "window": list(self.window), "window_size": self.window_size}
+        state = {"level_cap": self.level_cap, "window": list(self.window), "window_size": self.window_size}
+        if self.stone_counts:
+            state["stone_counts"] = self.stone_counts
+        return state
 
     def load_state_dict(self, value):
         cap, window = value["level_cap"], value["window"]
-        if (not isinstance(cap, int) or not 0 <= cap <= self.maximum or not isinstance(window, list)
+        # Earlier competition checkpoints saved only the row index.
+        saved_counts = tuple(value.get("stone_counts", (3, 4, 5, 6))) if self.stone_counts else ()
+        maximum = len(saved_counts) - 1 if saved_counts else self.maximum
+        if (not isinstance(cap, int) or not 0 <= cap <= maximum or not isinstance(window, list)
                 or not all(isinstance(item, bool) for item in window)):
             raise ValueError("Invalid saved stepping-stone curriculum")
+        if saved_counts and saved_counts != self.stone_counts:
+            old_count = saved_counts[cap]
+            cap = max((level for level, count in enumerate(self.stone_counts) if count <= old_count), default=0)
+            window = []
         self.level_cap = cap
         self.window.clear()
         self.window.extend(window)

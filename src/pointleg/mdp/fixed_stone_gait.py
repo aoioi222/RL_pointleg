@@ -12,7 +12,7 @@ HOLD = -2
 LANDING_TOLERANCE = 0.03
 SUPPORT_DRIFT_TOLERANCE = 0.03
 PLATFORM_MARGIN = 0.055
-FIRST_RIGHT_REAR_GAP = 0.20
+FIRST_RIGHT_REAR_GAP = 0.17
 SWING_TIME = 0.04
 MIN_SWING_CLEARANCE = 0.07
 LANDING_TIME = 0.08
@@ -20,12 +20,15 @@ LANDING_APPROACH_RADIUS = 0.05
 LANDING_WAIT_RAMP_TIME = 0.12
 PAIR_OVERLAP_TIME = 0.02
 FOOT_CLEARANCE = 0.05
+LEFT_REAR_GAP_DROP_SCALE = 0.05
+MIN_FIXED_STONES = 2
+MAX_FIXED_STONES = 6
 
 
 def foothold_schedule(count):
     """Return one-based stone destinations in FL, FR, RL, RR order."""
-    if not 3 <= count <= 6:
-        raise ValueError("Fixed gait requires three through six stones")
+    if not MIN_FIXED_STONES <= count <= MAX_FIXED_STONES:
+        raise ValueError("Fixed gait requires two through six stones")
     surfaces = [0] * 4
     phases = []
 
@@ -56,10 +59,10 @@ class FixedStoneGait:
     def __init__(self, count, device):
         self.device = device
         self.foot_pairs = torch.triu_indices(4, 4, offset=1, device=device)
-        schedules = [foothold_schedule(n) for n in range(3, 7)]
+        schedules = [foothold_schedule(n) for n in range(MIN_FIXED_STONES, MAX_FIXED_STONES + 1)]
         self.lengths = torch.tensor([len(plan) for plan in schedules], device=device)
         maximum = max(map(len, schedules))
-        self.plans = torch.full((4, maximum + 1, 4), HOLD, dtype=torch.long, device=device)
+        self.plans = torch.full((len(schedules), maximum + 1, 4), HOLD, dtype=torch.long, device=device)
         for index, plan in enumerate(schedules):
             self.plans[index, :len(plan)] = torch.tensor(plan, device=device)
         self.phase = torch.zeros(count, dtype=torch.long, device=device)
@@ -87,7 +90,10 @@ class FixedStoneGait:
         self.left_front_landing_wait_this_step = torch.zeros_like(self.ready)
         self.correct_landing = torch.zeros_like(self.lifted)
         self.pulses = {name: torch.zeros(count, device=device) for name in ("progress", "complete", "wrong_lift")}
-        self.costs = {name: torch.zeros(count, device=device) for name in ("support", "target", "edge", "clearance", "delay", "backward")}
+        self.costs = {
+            name: torch.zeros(count, device=device)
+            for name in ("support", "target", "edge", "clearance", "left_rear_gap", "delay", "backward")
+        }
 
     def reset(self, ids):
         for value in (self.phase, self.ready, self.done, self.age, self.stable, self.air, self.lifted, self.swing_attempted,
@@ -105,8 +111,11 @@ class FixedStoneGait:
         self.left_front_rear_transfer_lost_support.masked_fill_(mask, False)
         self.left_front_landing_wait_this_step.masked_fill_(mask, False)
 
+    def _schedule_index(self, counts):
+        return counts.clamp(MIN_FIXED_STONES, MAX_FIXED_STONES) - MIN_FIXED_STONES
+
     def destinations(self, counts):
-        return self.plans[(counts - 3).clamp(0, 3), self.phase]
+        return self.plans[self._schedule_index(counts), self.phase]
 
     def initialize(self, positions, counts, stones, exit_start, active):
         """Expose the first targets before contact loads have settled."""
@@ -258,6 +267,23 @@ class FixedStoneGait:
         clearance = positions[..., 2] - 0.20
         clearance_cost = ((desired - clearance).clamp_min(0) / MIN_SWING_CLEARANCE).square().clamp_max(1)
         self.costs["clearance"] += (clearance_cost * airborne).sum(dim=1) / moving_count * dt
+
+        # Keep the left rear foot above the gap until it reaches its next support.
+        left_rear_surfaces = torch.stack((self.support_surface[:, 2], destinations[:, 2]), dim=1)
+        on_stone_id = (left_rear_surfaces > 0) & (left_rear_surfaces < EXIT)
+        stone_transfer = on_stone_id.all(dim=1)
+        short_course_exit = (counts == 2) & (left_rear_surfaces[:, 0] == 1) & (destinations[:, 2] == EXIT)
+        left_rear_slots = (left_rear_surfaces - 1).clamp(0, stones.shape[1] - 1)
+        left_rear_stones = stones.gather(1, left_rear_slots[..., None].expand(-1, -1, 3))
+        stone_offset = (positions[:, 2:3, :2] - left_rear_stones[..., :2]).abs().amax(dim=-1)
+        over_stone = ((stone_offset <= stone_half_width) & on_stone_id).any(dim=1)
+        left_rear_x, left_rear_y, left_rear_z = positions[:, 2].unbind(dim=-1)
+        over_exit = short_course_exit & (left_rear_x >= exit_start) & (left_rear_x <= exit_start + 0.80)
+        over_exit &= left_rear_y.abs() <= 0.40
+        depth = ((0.20 - left_rear_z) / LEFT_REAR_GAP_DROP_SCALE).clamp(0.0, 1.0)
+        left_rear_gap = (stone_transfer | short_course_exit) & ~over_stone & ~over_exit
+        self.costs["left_rear_gap"] += depth * left_rear_gap * live * dt
+
         rear_limit = torch.minimum(self.origin[..., 0], self.targets[..., 0]) - 0.01
         backward_cost = ((rear_limit - positions[..., 0]).clamp_min(0.0) / 0.05).square().clamp_max(1.0)
         self.costs["backward"] += (backward_cost * airborne).sum(dim=1) / moving_count * dt
@@ -268,7 +294,7 @@ class FixedStoneGait:
         landing_overdue = ((self.left_front_landing_wait - LANDING_TIME) / LANDING_WAIT_RAMP_TIME).clamp(0, 1)
         self.costs["delay"] += torch.maximum(torch.maximum(waiting, overdue), landing_overdue) * live * dt
         self.phase += complete.long()
-        lengths = self.lengths[(counts - 3).clamp(0, 3)]
+        lengths = self.lengths[self._schedule_index(counts)]
         self.done |= self.phase >= lengths
         self._set_targets(complete & ~self.done, positions, counts, stones, exit_start)
         return complete
@@ -279,5 +305,5 @@ class FixedStoneGait:
         relative = torch.stack((c * delta[..., 0] + s * delta[..., 1], -s * delta[..., 0] + c * delta[..., 1], delta[..., 2]), dim=-1)
         relative = torch.where(self.ready[:, None, None], relative, 0.0)
         moving = (self.destinations(counts) != HOLD) & self.ready[:, None] & ~self.done[:, None]
-        phase = self.phase.float() / self.lengths[(counts - 3).clamp(0, 3)]
+        phase = self.phase.float() / self.lengths[self._schedule_index(counts)]
         return torch.cat((relative.flatten(1), moving.float(), phase[:, None], self.age.clamp_max(4)[:, None] / 4), dim=1)

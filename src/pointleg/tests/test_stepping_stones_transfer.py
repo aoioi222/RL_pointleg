@@ -77,6 +77,17 @@ class SteppingStonesTransferTests(unittest.TestCase):
             self.assertEqual(runner.current_learning_iteration, 7)
             self.assertEqual(runner.env.common_step_counter, 42)
 
+    def test_legacy_four_level_resume_maps_by_stone_count_and_clears_window(self):
+        env = SimpleNamespace(cfg=load_env_cfg(TASK))
+        course = SteppingStoneCurriculum(env.cfg.curriculum["stepping_stone_levels"], env)
+        self.assertEqual(course.state_dict()["stone_counts"], (2, 4, 6))
+        for old_cap, new_cap in enumerate((0, 1, 1, 2)):
+            with self.subTest(old_cap=old_cap):
+                course.window.append(False)
+                course.load_state_dict({"level_cap": old_cap, "window": [True] * 256, "window_size": 256})
+                self.assertEqual(course.level_cap, new_cap)
+                self.assertFalse(course.window)
+
     def test_training_uses_progress_and_actor_only_load_selects_checkpoint_observations(self):
         runner = make_runner(TASK, use_registered_runner=True)
         term = runner.env.cfg.observations["actor"].terms["foot_contact"]

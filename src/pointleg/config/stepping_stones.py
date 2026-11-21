@@ -71,12 +71,12 @@ from ..mdp.stepping_stones import (
     visited_stone_mask,
 )
 from ..robot_cfg import FOOT_BODY_NAMES
-from ..terrains.stepping_stones import SteppingStonesTerrainCfg
+from ..terrains.stepping_stones import COMPETITION_STONE_COUNTS, SteppingStonesTerrainCfg
 from .env_cfgs import flat_env_cfg
 
 
 def configure_competition_six(cfg, *, gap_curriculum: bool = False) -> None:
-    """Select the final six-stone scene or the three-to-six-stone curriculum."""
+    """Select the final six-stone scene or the two-, four-, and six-stone curriculum."""
     difficulty = 1.0
     terrain = cfg.scene.terrain
     generator = terrain.terrain_generator
@@ -85,7 +85,7 @@ def configure_competition_six(cfg, *, gap_curriculum: bool = False) -> None:
     )
     terrain.terrain_generator = replace(
         generator,
-        num_rows=4 if gap_curriculum else 1,
+        num_rows=len(COMPETITION_STONE_COUNTS) if gap_curriculum else 1,
         num_cols=1,
         layout_shape=None,
         difficulty_range=(0.0, 1.0) if gap_curriculum else (difficulty, difficulty),
@@ -122,7 +122,7 @@ def make_stepping_stones_env_cfg(play: bool = False):
         terrain_generator=TerrainGeneratorCfg(
             size=(8.0, 8.0),
             border_width=2.0,
-            num_rows=4,
+            num_rows=len(COMPETITION_STONE_COUNTS),
             num_cols=1,
             layout_shape=None,
             curriculum=True,
@@ -204,7 +204,9 @@ def make_stepping_stones_env_cfg(play: bool = False):
         "stepping_foot_side": RewardTermCfg(func=stepping_foot_side_penalty, weight=-8.0),
         "stepping_success": RewardTermCfg(func=success_reward, weight=40.0),
         "stepping_exit_stability": RewardTermCfg(func=exit_stability_reward, weight=4.0),
-        "stepping_failure": RewardTermCfg(func=stepping_failure_reward, weight=-25.0),
+        "stepping_failure": RewardTermCfg(
+            func=stepping_failure_reward, weight=-25.0, params={"ground_contact_multiplier": 2.0},
+        ),
         "stepping_early_failure": RewardTermCfg(
             func=stepping_early_failure_penalty, weight=0.0, params={"grace_time_s": 60.0},
         ),
@@ -271,6 +273,7 @@ def make_stepping_stones_env_cfg(play: bool = False):
         ("target", "target", -3.0, False),
         ("platform_edge", "edge", -5.0, False),
         ("clearance", "clearance", -1.5, False),
+        ("left_rear_gap", "left_rear_gap", -8.0, False),
         ("delay", "delay", -8.0, False),
         ("backward", "backward", -4.0, False),
     ):

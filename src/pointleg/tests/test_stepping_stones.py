@@ -332,9 +332,9 @@ class SteppingStoneGeometryTests(unittest.TestCase):
         torch.testing.assert_close(state["right_platform_start"], torch.full((4,), 2.7))
         torch.testing.assert_close(torch.diff(state["stone_centers"][:, :6, 0]), torch.full((4, 5), .30))
         mixed = load_env_cfg(task).scene.terrain.terrain_generator
-        self.assertEqual((mixed.num_rows, len(mixed.sub_terrains)), (4, 1))
+        self.assertEqual((mixed.num_rows, len(mixed.sub_terrains)), (3, 1))
 
-    def test_competition_six_gap_curriculum_changes_spacing_with_six_active_stones(self):
+    def test_competition_six_curriculum_changes_stone_count_with_fixed_spacing(self):
         with (
             patch("sys.argv", [
                 "pointleg", "train", "PointLeg-SteppingStones-v0", "--competition-six-curriculum",
@@ -347,10 +347,10 @@ class SteppingStoneGeometryTests(unittest.TestCase):
         term = train.env.curriculum["stepping_stone_levels"]
         self.assertEqual(term.params["window_size"], 256)
         self.assertTrue(term.params["promote_at_current_cap"])
-        env = fake_env(4)
+        env = fake_env(3)
         terrain = env.scene.terrain
         terrain.cfg = train.env.scene.terrain
-        terrain.terrain_levels[:] = torch.arange(4)
+        terrain.terrain_levels[:] = torch.arange(3)
         generator = TerrainGenerator(terrain.cfg.terrain_generator)
         spec = mujoco.MjSpec()
         generator.compile(spec)
@@ -358,8 +358,8 @@ class SteppingStoneGeometryTests(unittest.TestCase):
         terrain.env_origins[:] = torch.as_tensor(generator.terrain_origins[:, 0])
         reset_stepping_stones(env, None)
         state = env._stepping_stones
-        expected_gaps = torch.full((4,), .10)
-        torch.testing.assert_close(state["active_count"], torch.arange(3, 7))
+        expected_gaps = torch.full((3,), .10)
+        torch.testing.assert_close(state["active_count"], torch.tensor([2, 4, 6]))
         torch.testing.assert_close(stepping_metric(env, "stone_gap_m"), expected_gaps)
         for i, origin in enumerate(terrain.env_origins):
             center = state["stone_centers"][i, state["active_count"][i] - 1] + origin
@@ -616,7 +616,7 @@ class SteppingStoneLogicTests(unittest.TestCase):
     def test_config_is_forward_only_and_has_all_task_adjudicators(self):
         cfg = load_env_cfg("PointLeg-SteppingStones-v0")
         self.assertEqual(cfg.episode_length_s, 60.0)
-        self.assertEqual(cfg.scene.terrain.terrain_generator.num_rows, 4)
+        self.assertEqual(cfg.scene.terrain.terrain_generator.num_rows, 3)
         self.assertEqual(cfg.commands["twist"].ranges.lin_vel_x, (0.3, 0.4))
         self.assertEqual(cfg.commands["twist"].ranges.lin_vel_y, (0.0, 0.0))
         self.assertEqual(cfg.commands["twist"].ranges.ang_vel_z, (0.0, 0.0))
@@ -650,6 +650,7 @@ class SteppingStoneLogicTests(unittest.TestCase):
                 "stepping_gait_target": -3.0,
                 "stepping_gait_platform_edge": -5.0,
                 "stepping_gait_clearance": -1.5,
+                "stepping_gait_left_rear_gap": -8.0,
                 "stepping_gait_delay": -2.0,
                 "stepping_gait_backward": -4.0,
                 "stepping_lateral_velocity": -3.0,
